@@ -1,6 +1,7 @@
-use chip8::Emulator;
+use chip8::emulator::emulator;
 
 fn main() {
-    let emulator = Emulator::new();
-    emulator.hello();
+    let mut emulator = emulator::Emulator::new();
+    println!("Emulator: {}", &emulator);
+    emulator::emulate(&mut emulator);
 }
