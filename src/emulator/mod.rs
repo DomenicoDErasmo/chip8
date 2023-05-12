@@ -1,15 +1,21 @@
 pub mod emulator {
     use std::{time::{SystemTime, Duration}, thread::sleep};
+    use crate::stack::stack::Stack;
 
-    pub const MEMORY_SIZE: usize = 4096;
+    const MEMORY_SIZE: usize = 4096;
 
-    pub const WIDTH: usize = 64;
-    pub const HEIGHT: usize = 32;
+    const WIDTH: usize = 64;
+    const HEIGHT: usize = 32;
+
+    const TIMER_INIT_SIZE: usize = 0;
 
     #[derive(Debug)]
     pub struct Emulator {
         memory: [u8; MEMORY_SIZE],
         screen: [[bool; WIDTH]; HEIGHT],
+        stack: Stack<u16>,
+        delay_timer: usize,
+        sound_timer: usize,
     }
 
     impl Emulator {
@@ -18,6 +24,9 @@ pub mod emulator {
             Emulator { 
                 memory,
                 screen: [[false; WIDTH]; HEIGHT],
+                stack: Stack::<u16>::new(),
+                delay_timer: 0,
+                sound_timer: 0,
             }
         }
 
@@ -85,7 +94,7 @@ pub mod emulator {
     
     #[cfg(test)]
     mod emulator_tests {
-        use crate::emulator::emulator;
+        use crate::emulator::emulator::{self, TIMER_INIT_SIZE};
 
         #[test]
         fn memory_init() {
@@ -106,5 +115,19 @@ pub mod emulator {
             assert_eq!(emulator.screen.len(), emulator::HEIGHT);
             assert_eq!(emulator.screen[0].len(), emulator::WIDTH);
         }
+
+        #[test]
+        fn stack_init() {
+            let emulator = emulator::Emulator::new();
+            assert_eq!(emulator.stack.size(), 0);
+        }
+
+        #[test]
+        fn timer_init() {
+            let emulator = emulator::Emulator::new();
+            assert_eq!(emulator.delay_timer, TIMER_INIT_SIZE);
+            assert_eq!(emulator.sound_timer, TIMER_INIT_SIZE);
+        }
+
     }
 }
