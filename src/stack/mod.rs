@@ -7,7 +7,7 @@ pub mod stack {
     impl<T> Stack<T> {
         pub fn new() -> Stack<T> {
             Stack::<T> {
-                stack: Vec::<T>::new()
+                stack: Vec::<T>::new(),
             }
         }
 
