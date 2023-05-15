@@ -1,8 +1,6 @@
 pub mod emulator {
-    use crate::keyboard::keyboard;
     use crate::stack::stack::Stack;
     use std::{
-        process::exit,
         thread::sleep,
         time::{Duration, SystemTime},
     };
@@ -16,9 +14,9 @@ pub mod emulator {
     pub struct Emulator {
         memory: [u8; MEMORY_SIZE],
         screen: [[bool; WIDTH]; HEIGHT],
-        stack: Stack<u16>,
-        delay_timer: usize,
-        sound_timer: usize,
+        _stack: Stack<u16>,
+        _delay_timer: usize,
+        _sound_timer: usize,
     }
 
     impl Emulator {
@@ -27,9 +25,9 @@ pub mod emulator {
             Emulator {
                 memory,
                 screen: [[false; WIDTH]; HEIGHT],
-                stack: Stack::<u16>::new(),
-                delay_timer: 0,
-                sound_timer: 0,
+                _stack: Stack::<u16>::new(),
+                _delay_timer: 0,
+                _sound_timer: 0,
             }
         }
 
@@ -83,31 +81,34 @@ pub mod emulator {
         let running = true;
         let mut last_time = current_timestamp();
 
+        const HERTZ: u32 = 60;
+        let mut counter = 0;
+
         while running {
             let mut current_time = current_timestamp();
 
-            let input = keyboard::parse_keyboard();
-
-            match input {
-                Some(pressed) => match pressed {
-                    'p' => {
-                        println!("Good bye!");
-                        exit(0);
-                    }
-                    _ => println!("Pressed {}", pressed),
-                },
-                None => (),
-            }
-
+            // end of processing for this visual frame
             let time_delta = match u32::try_from(current_time - last_time) {
                 Ok(time) => time,
                 Err(_) => panic!("Conversion error!"),
             };
 
-            sleep(Duration::new(0, 1_000_000 * (16 - time_delta)));
+            if counter >= HERTZ {
+                println!("A second has passed");
+                counter = 0;
+            }
+            counter = counter + 1;
+
+            sleep(Duration::new(0, nanoseconds_per_cycle(HERTZ) - time_delta));
+
             current_time = current_timestamp();
             last_time = current_time;
         }
+    }
+
+    fn nanoseconds_per_cycle(frequency: u32) -> u32 {
+        // taking duration of one cycle and multiplying by 1,000,000 to get the desired precision
+        (1_000_000.0 / frequency as f32).round() as u32
     }
 
     #[cfg(test)]
@@ -139,14 +140,14 @@ pub mod emulator {
         #[test]
         fn stack_init() {
             let emulator = emulator::Emulator::new();
-            assert_eq!(emulator.stack.size(), 0);
+            assert_eq!(emulator._stack.size(), 0);
         }
 
         #[test]
         fn timer_init() {
             let emulator = emulator::Emulator::new();
-            assert_eq!(emulator.delay_timer, TIMER_INIT_SIZE);
-            assert_eq!(emulator.sound_timer, TIMER_INIT_SIZE);
+            assert_eq!(emulator._delay_timer, TIMER_INIT_SIZE);
+            assert_eq!(emulator._sound_timer, TIMER_INIT_SIZE);
         }
     }
 }
