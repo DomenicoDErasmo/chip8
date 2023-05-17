@@ -1,8 +1,6 @@
+use spin_sleep::SpinSleeper;
 use std::collections::HashSet;
-use std::{
-    thread::sleep,
-    time::{Duration, SystemTime},
-};
+use std::time::{Duration, SystemTime};
 use winit::event::ElementState;
 use winit::window::Icon;
 use winit::{event::KeyboardInput, platform::windows::WindowBuilderExtWindows};
@@ -11,6 +9,7 @@ use winit::{
     platform::run_return::EventLoopExtRunReturn,
 };
 use winit::{event_loop::EventLoop, window::Window, window::WindowBuilder};
+
 pub struct MyWindow {
     event_loop: EventLoop<()>,
     pub window: Window,
@@ -50,7 +49,7 @@ impl MyWindow {
     pub fn run(mut self) {
         let mut last_time = Self::current_timestamp();
         let mut counter = 0;
-        const HERTZ: u32 = 60;
+        const FRAMES_PER_SECOND: u32 = 60;
 
         let mut running = true;
         let killswitch_scancode = 25;
@@ -74,6 +73,9 @@ impl MyWindow {
             47,
             killswitch_scancode.clone(),
         ]);
+
+        // native Windows sleep is inaccurate so we use a crate
+        let spin_sleeper = SpinSleeper::new(100_000);
 
         while running {
             // process event
@@ -110,24 +112,36 @@ impl MyWindow {
                 }
             });
 
+            // fetch, decode, execute
+            const INSTRUCTIONS_PER_SECOND: u32 = 720;
+            const INSTRUCTIONS_PER_FRAME: u32 = INSTRUCTIONS_PER_SECOND / FRAMES_PER_SECOND;
+
+            assert!(INSTRUCTIONS_PER_SECOND > FRAMES_PER_SECOND);
+
+            for _ in 0..=INSTRUCTIONS_PER_FRAME {
+                // TODO: fetch
+
+                // TODO: decode
+
+                // TODO: execute
+                continue;
+            }
+
             // end of frame
             let mut current_time = Self::current_timestamp();
 
-            let time_delta = match u32::try_from(current_time - last_time) {
-                Ok(time) => time,
-                Err(_) => panic!("Conversion error!"),
-            };
+            let time_delta = u32::try_from(current_time - last_time).unwrap_or(0);
 
             counter = counter + 1;
-            if counter >= HERTZ {
+            if counter >= FRAMES_PER_SECOND {
                 println!("A second has passed");
                 counter = 0;
             }
 
             // end of processing for this visual frame
-            sleep(Duration::new(
+            spin_sleeper.sleep(Duration::new(
                 0,
-                Self::nanoseconds_per_cycle(HERTZ) - time_delta,
+                Self::nanoseconds_per_cycle(FRAMES_PER_SECOND) - time_delta,
             ));
 
             current_time = Self::current_timestamp();
@@ -137,13 +151,12 @@ impl MyWindow {
 
     fn current_timestamp() -> u128 {
         match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
-            Ok(time) => time.as_millis(),
+            Ok(time) => time.as_nanos(),
             Err(_) => panic!("System time before UNIX EPOCH!"),
         }
     }
 
     fn nanoseconds_per_cycle(frequency: u32) -> u32 {
-        // taking duration of one cycle and multiplying by 1,000,000 to get the desired precision
-        (1_000_000.0 / frequency as f32).round() as u32
+        (1_000_000_000.0 / frequency as f32).round() as u32
     }
 }
