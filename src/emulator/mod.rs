@@ -12,6 +12,7 @@ pub struct Emulator {
     _stack: Stack<u16>,
     _delay_timer: usize,
     _sound_timer: usize,
+    program_counter: usize,
 }
 
 impl Emulator {
@@ -23,6 +24,7 @@ impl Emulator {
             _stack: Stack::<u16>::new(),
             _delay_timer: 0,
             _sound_timer: 0,
+            program_counter: 0,
         }
     }
 
@@ -65,10 +67,33 @@ impl std::fmt::Display for Emulator {
     }
 }
 
+pub fn fetch(emulator: &mut Emulator) -> u16 {
+    let instruction_one = emulator.memory[emulator.program_counter].clone();
+    let instruction_two = emulator.memory[emulator.program_counter + 1].clone();
+    emulator.program_counter = emulator.program_counter + 2;
+    let mut result: u16 = 0;
+
+    result = append_bits(result, instruction_one);
+    result = append_bits(result, instruction_two);
+
+    result
+}
+
+// TODO: fix append function
+fn append_bits(mut appendee: u16, mut appender: u8) -> u16 {
+    while appender > 0 {
+        appendee = appendee | ((appender & 1) as u16);
+        appender = appender >> 1;
+    }
+    appendee
+}
+
 #[cfg(test)]
 mod emulator_tests {
-    const TIMER_INIT_SIZE: usize = 0;
+    const ZERO: usize = 0;
     use crate::emulator;
+
+    use super::append_bits;
 
     #[test]
     fn memory_init() {
@@ -79,9 +104,8 @@ mod emulator_tests {
     #[test]
     fn font_init() {
         let emulator = emulator::Emulator::new();
-        assert_eq!(emulator.memory[0x50..0x55], [0xF0, 0x90, 0x90, 0x90, 0xF0]); // 0
+        assert_eq!(emulator.memory[0x50..0x55], [0xF0, 0x90, 0x90, 0x90, 0xF0]);
         assert_eq!(emulator.memory[0x9B..0xA0], [0xF0, 0x80, 0x90, 0x80, 0x80]);
-        // F
     }
 
     #[test]
@@ -100,7 +124,21 @@ mod emulator_tests {
     #[test]
     fn timer_init() {
         let emulator = emulator::Emulator::new();
-        assert_eq!(emulator._delay_timer, TIMER_INIT_SIZE);
-        assert_eq!(emulator._sound_timer, TIMER_INIT_SIZE);
+        assert_eq!(emulator._delay_timer, ZERO);
+        assert_eq!(emulator._sound_timer, ZERO);
+    }
+
+    #[test]
+    fn program_counter_init() {
+        let emulator = emulator::Emulator::new();
+        assert_eq!(emulator.program_counter, ZERO);
+    }
+
+    #[test]
+    fn test_append_bits() {
+        let result: u16 = 0b0000_0000_0000_0000;
+        let append1: u8 = 0b1010_0101;
+        let result = append_bits(result, append1);
+        assert_eq!(result, 0b1010_0101);
     }
 }

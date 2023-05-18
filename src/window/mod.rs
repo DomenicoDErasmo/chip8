@@ -1,3 +1,4 @@
+use crate::emulator;
 use spin_sleep::SpinSleeper;
 use std::collections::HashSet;
 use std::time::{Duration, SystemTime};
@@ -11,12 +12,13 @@ use winit::{
 use winit::{event_loop::EventLoop, window::Window, window::WindowBuilder};
 
 pub struct MyWindow {
+    emulator: emulator::Emulator,
     event_loop: EventLoop<()>,
     pub window: Window,
 }
 
 impl MyWindow {
-    pub fn new() -> MyWindow {
+    pub fn new(emulator: emulator::Emulator) -> MyWindow {
         let event_loop = EventLoop::new();
 
         let window = match WindowBuilder::new()
@@ -28,7 +30,11 @@ impl MyWindow {
             Ok(window) => window,
             Err(_) => panic!("Couldn't make window"),
         };
-        let window = MyWindow { event_loop, window };
+        let window = MyWindow {
+            emulator,
+            event_loop,
+            window,
+        };
         window
     }
 
