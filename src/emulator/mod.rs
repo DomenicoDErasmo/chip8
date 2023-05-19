@@ -79,10 +79,9 @@ pub fn fetch(emulator: &mut Emulator) -> u16 {
     result
 }
 
-// TODO: fix append function
 fn append_bits(mut appendee: u16, mut appender: u8) -> u16 {
     while appender > 0 {
-        appendee = appendee | ((appender & 1) as u16);
+        appendee = (appendee << 1) | ((appender & 1) as u16);
         appender = appender >> 1;
     }
     appendee
