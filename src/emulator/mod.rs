@@ -15,6 +15,32 @@ pub struct Emulator {
     program_counter: usize,
 }
 
+pub struct Instruction {
+    instruction: fn() -> (),
+    body: RegisterStructure,
+}
+
+enum RegisterStructure {
+    TWO(TwoRegister),
+    ONE(OneRegister),
+    NO(NoRegister),
+}
+
+struct TwoRegister {
+    x_register: u8,
+    y_register: u8,
+    n_number: u8,
+}
+
+struct OneRegister {
+    x_register: u8,
+    nn_number: u8,
+}
+
+struct NoRegister {
+    nnn_number: u16,
+}
+
 impl Emulator {
     pub fn new() -> Emulator {
         let memory: [u8; MEMORY_SIZE] = Self::build_memory();
@@ -53,6 +79,34 @@ impl Emulator {
         memory[0x96..0x9B].copy_from_slice(&[0xF0, 0x80, 0xF0, 0x80, 0xF0]);
         memory[0x9B..0xA0].copy_from_slice(&[0xF0, 0x80, 0x90, 0x80, 0x80]);
     }
+
+    pub fn fetch(&mut self) -> u16 {
+        let instruction_one = self.memory[self.program_counter].clone();
+        let instruction_two = self.memory[self.program_counter + 1].clone();
+        self.program_counter = self.program_counter + 2;
+        let mut result: u16 = 0;
+
+        result = Self::append_bits(result, instruction_one);
+        result = Self::append_bits(result, instruction_two);
+
+        result
+    }
+
+    fn append_bits(mut appendee: u16, mut appender: u8) -> u16 {
+        while appender > 0 {
+            appendee = (appendee << 1) | ((appender & 1) as u16);
+            appender = appender >> 1;
+        }
+        appendee
+    }
+}
+
+// TODO: return Instruction instead of empty
+pub fn decode(instruction: u16) -> () {}
+
+// TODO: implement
+fn get_value_from_bit_range(instruction: u16, start: u8, end: u8) -> u8 {
+    0
 }
 
 impl std::fmt::Display for Emulator {
@@ -67,32 +121,12 @@ impl std::fmt::Display for Emulator {
     }
 }
 
-pub fn fetch(emulator: &mut Emulator) -> u16 {
-    let instruction_one = emulator.memory[emulator.program_counter].clone();
-    let instruction_two = emulator.memory[emulator.program_counter + 1].clone();
-    emulator.program_counter = emulator.program_counter + 2;
-    let mut result: u16 = 0;
-
-    result = append_bits(result, instruction_one);
-    result = append_bits(result, instruction_two);
-
-    result
-}
-
-fn append_bits(mut appendee: u16, mut appender: u8) -> u16 {
-    while appender > 0 {
-        appendee = (appendee << 1) | ((appender & 1) as u16);
-        appender = appender >> 1;
-    }
-    appendee
-}
-
 #[cfg(test)]
 mod emulator_tests {
     const ZERO: usize = 0;
     use crate::emulator;
 
-    use super::append_bits;
+    use super::Emulator;
 
     #[test]
     fn memory_init() {
@@ -137,7 +171,7 @@ mod emulator_tests {
     fn test_append_bits() {
         let result: u16 = 0b0000_0000_0000_0000;
         let append1: u8 = 0b1010_0101;
-        let result = append_bits(result, append1);
+        let result = Emulator::append_bits(result, append1);
         assert_eq!(result, 0b1010_0101);
     }
 }

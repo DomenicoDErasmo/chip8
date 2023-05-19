@@ -125,9 +125,10 @@ impl MyWindow {
             assert!(INSTRUCTIONS_PER_SECOND > FRAMES_PER_SECOND);
 
             for _ in 0..=INSTRUCTIONS_PER_FRAME {
-                // TODO: fetch
+                let instruction = self.emulator.fetch();
 
                 // TODO: decode
+                
 
                 // TODO: execute
                 continue;
