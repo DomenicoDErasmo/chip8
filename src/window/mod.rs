@@ -125,10 +125,9 @@ impl MyWindow {
             assert!(INSTRUCTIONS_PER_SECOND > FRAMES_PER_SECOND);
 
             for _ in 0..=INSTRUCTIONS_PER_FRAME {
-                let instruction = self.emulator.fetch();
+                let _instruction = self.emulator.fetch();
 
                 // TODO: decode
-                
 
                 // TODO: execute
                 continue;
@@ -139,7 +138,7 @@ impl MyWindow {
 
             let time_delta = u32::try_from(current_time - last_time).unwrap_or(0);
 
-            counter = counter + 1;
+            counter = counter + 2;
             if counter >= FRAMES_PER_SECOND {
                 println!("A second has passed");
                 counter = 0;

@@ -2,43 +2,49 @@ use crate::stack::Stack;
 
 const MEMORY_SIZE: usize = 4096;
 
-const WIDTH: usize = 64;
-const HEIGHT: usize = 32;
+const WIDTH: u16 = 64;
+const HEIGHT: u16 = 32;
 
 #[derive(Debug)]
 pub struct Emulator {
-    memory: [u8; MEMORY_SIZE],
-    screen: [[bool; WIDTH]; HEIGHT],
-    _stack: Stack<u16>,
-    _delay_timer: usize,
-    _sound_timer: usize,
-    program_counter: usize,
+    pub memory: [u8; MEMORY_SIZE],
+    pub screen: [[bool; WIDTH as usize]; HEIGHT as usize],
+    pub stack: Stack<u16>,
+    _delay_timer: u8,
+    _sound_timer: u8,
+    pub program_counter: u16,
+    pub registers: [u8; 16],
 }
 
-pub struct Instruction {
-    instruction: fn() -> (),
-    body: RegisterStructure,
+pub struct InstructionSignature {
+    _instruction: fn(&mut Emulator, InstructionArguments) -> (),
+    _arguments: InstructionArguments,
+}
+
+pub struct InstructionArguments {
+    _body: RegisterStructure,
+    _config: bool,
 }
 
 enum RegisterStructure {
-    TWO(TwoRegister),
-    ONE(OneRegister),
-    NO(NoRegister),
+    _TWO(TwoRegister),
+    _ONE(OneRegister),
+    _NO(NoRegister),
 }
 
 struct TwoRegister {
-    x_register: u8,
-    y_register: u8,
-    n_number: u8,
+    _x_register: u8,
+    _y_register: u8,
+    _n_number: u8,
 }
 
 struct OneRegister {
-    x_register: u8,
-    nn_number: u8,
+    _x_register: u8,
+    _nn_number: u8,
 }
 
 struct NoRegister {
-    nnn_number: u16,
+    _nnn_number: u16,
 }
 
 impl Emulator {
@@ -46,11 +52,12 @@ impl Emulator {
         let memory: [u8; MEMORY_SIZE] = Self::build_memory();
         Emulator {
             memory,
-            screen: [[false; WIDTH]; HEIGHT],
-            _stack: Stack::<u16>::new(),
+            screen: [[false; WIDTH as usize]; HEIGHT as usize],
+            stack: Stack::<u16>::new(),
             _delay_timer: 0,
             _sound_timer: 0,
             program_counter: 0,
+            registers: [0; 16],
         }
     }
 
@@ -81,8 +88,8 @@ impl Emulator {
     }
 
     pub fn fetch(&mut self) -> u16 {
-        let instruction_one = self.memory[self.program_counter].clone();
-        let instruction_two = self.memory[self.program_counter + 1].clone();
+        let instruction_one = self.memory[self.program_counter as usize].clone();
+        let instruction_two = self.memory[(self.program_counter + 1) as usize].clone();
         self.program_counter = self.program_counter + 2;
         let mut result: u16 = 0;
 
@@ -99,14 +106,42 @@ impl Emulator {
         }
         appendee
     }
+
+    pub fn increment_program_counter(&mut self) {
+        self.program_counter = self.program_counter + 2;
+    }
 }
 
 // TODO: return Instruction instead of empty
-pub fn decode(instruction: u16) -> () {}
+pub fn decode(instruction: u16) -> () {
+    let _chunk_0 = get_value_from_bit_range(instruction, 0, 3);
+    let _chunk_1 = get_value_from_bit_range(instruction, 4, 7);
+    let _chunk_2 = get_value_from_bit_range(instruction, 8, 11);
+    let _chunk_3 = get_value_from_bit_range(instruction, 12, 15);
+}
 
-// TODO: implement
-fn get_value_from_bit_range(instruction: u16, start: u8, end: u8) -> u8 {
-    0
+/// Gets a zero-indexed bit range from instruction
+///
+/// # Arguments
+///
+/// * `instruction` - Any 16-bit number
+/// * `start` - The rightmost digit
+/// * `end` - The leftmost digit
+fn get_value_from_bit_range(mut instruction: u16, start: u8, end: u8) -> u16 {
+    let mut result_reverse: u16 = 0;
+    for _ in 0..start {
+        instruction = instruction >> 1;
+    }
+    for _ in start..=end {
+        result_reverse = result_reverse << 1 | (instruction & 1);
+        instruction = instruction >> 1;
+    }
+    let mut result: u16 = 0;
+    for _ in start..=end {
+        result = result << 1 | (result_reverse & 1);
+        result_reverse = result_reverse >> 1;
+    }
+    result
 }
 
 impl std::fmt::Display for Emulator {
@@ -123,10 +158,10 @@ impl std::fmt::Display for Emulator {
 
 #[cfg(test)]
 mod emulator_tests {
-    const ZERO: usize = 0;
+    const ZERO: u8 = 0;
     use crate::emulator;
 
-    use super::Emulator;
+    use super::{get_value_from_bit_range, Emulator};
 
     #[test]
     fn memory_init() {
@@ -144,14 +179,14 @@ mod emulator_tests {
     #[test]
     fn screen_init() {
         let emulator = emulator::Emulator::new();
-        assert_eq!(emulator.screen.len(), emulator::HEIGHT);
-        assert_eq!(emulator.screen[0].len(), emulator::WIDTH);
+        assert_eq!(emulator.screen.len() as u16, emulator::HEIGHT);
+        assert_eq!(emulator.screen[0].len() as u16, emulator::WIDTH);
     }
 
     #[test]
     fn stack_init() {
         let emulator = emulator::Emulator::new();
-        assert_eq!(emulator._stack.size(), 0);
+        assert_eq!(emulator.stack.size(), 0);
     }
 
     #[test]
@@ -164,7 +199,7 @@ mod emulator_tests {
     #[test]
     fn program_counter_init() {
         let emulator = emulator::Emulator::new();
-        assert_eq!(emulator.program_counter, ZERO);
+        assert_eq!(emulator.program_counter, ZERO as u16);
     }
 
     #[test]
@@ -173,5 +208,20 @@ mod emulator_tests {
         let append1: u8 = 0b1010_0101;
         let result = Emulator::append_bits(result, append1);
         assert_eq!(result, 0b1010_0101);
+    }
+
+    #[test]
+    fn test_get_value_from_bit_range() {
+        let instruction: u16 = 0b1000_0000_0000_0000;
+        let result = get_value_from_bit_range(instruction, 12, 15);
+        assert_eq!(result, 0b0000_0000_0000_1000);
+
+        let instruction: u16 = 0b0000_1101_0101_0000;
+        let result = get_value_from_bit_range(instruction, 4, 11);
+        assert_eq!(result, 0b0000_0000_1101_0101);
+
+        let instruction: u16 = 0b0000_0110_1011_0111;
+        let result = get_value_from_bit_range(instruction, 0, 11);
+        assert_eq!(result, 0b0000_0110_1011_0111);
     }
 }
