@@ -1,4 +1,6 @@
-use crate::stack::Stack;
+use std::num::IntErrorKind;
+
+use crate::{function, stack::Stack};
 
 const MEMORY_SIZE: usize = 4096;
 
@@ -14,37 +16,6 @@ pub struct Emulator {
     _sound_timer: u8,
     pub program_counter: u16,
     pub registers: [u8; 16],
-}
-
-pub struct InstructionSignature {
-    _instruction: fn(&mut Emulator, InstructionArguments) -> (),
-    _arguments: InstructionArguments,
-}
-
-pub struct InstructionArguments {
-    _body: RegisterStructure,
-    _config: bool,
-}
-
-enum RegisterStructure {
-    _TWO(TwoRegister),
-    _ONE(OneRegister),
-    _NO(NoRegister),
-}
-
-struct TwoRegister {
-    _x_register: u8,
-    _y_register: u8,
-    _n_number: u8,
-}
-
-struct OneRegister {
-    _x_register: u8,
-    _nn_number: u8,
-}
-
-struct NoRegister {
-    _nnn_number: u16,
 }
 
 impl Emulator {
@@ -112,15 +83,353 @@ impl Emulator {
     }
 }
 
-// TODO: return Instruction instead of empty
-pub fn decode(instruction: u16) -> () {
-    let _chunk_0 = get_value_from_bit_range(instruction, 0, 3);
-    let _chunk_1 = get_value_from_bit_range(instruction, 4, 7);
-    let _chunk_2 = get_value_from_bit_range(instruction, 8, 11);
-    let _chunk_3 = get_value_from_bit_range(instruction, 12, 15);
+pub struct InstructionSignature {
+    _function: fn(&mut Emulator, InstructionArguments) -> (),
+    _arguments: InstructionArguments,
 }
 
-/// Gets a zero-indexed bit range from instruction
+pub struct InstructionArguments {
+    _body: RegisterStructure,
+    _config: bool,
+}
+
+enum RegisterStructure {
+    TWO(TwoRegister),
+    ONE(OneRegister),
+    NO(NoRegister),
+}
+
+struct TwoRegister {
+    _x_register: u16,
+    _y_register: u16,
+    _n_number: u16,
+}
+
+struct OneRegister {
+    _x_register: u16,
+    _nn_number: u16,
+}
+
+struct NoRegister {
+    _nnn_number: u16,
+}
+
+/// Decodes the instruction and turns it into one of the below functions. Functions can consist of the following properties:
+/// - First nibble: kind of instruction
+///     - Either
+///         - Second nibble (X): a register
+///             - Either
+///                 - Third nibble (Y): a register
+///                 - Fourth nibble (N): a number argument
+///             - OR
+///                 - Third and fourth nibbles (NN): a number argument
+///     - OR
+///         - Second, third, and fourth nibbles (NNN): a number argument
+///
+/// These are typically expressed as 0XYN, 0XNN, or 0NNN, where the first digit can vary from 0 to F
+///
+/// # Arguments
+///
+/// instruction: A 16-bit number
+///
+/// # Errors
+///
+/// IntErrorKind::InvalidDigit: We passed a wrongly-formatted instruction
+pub fn decode(instruction: u16) -> Result<InstructionSignature, IntErrorKind> {
+    let nibble_0 = get_value_from_bit_range(instruction, 0, 3);
+    let nibble_1 = get_value_from_bit_range(instruction, 4, 7);
+    let nibble_2 = get_value_from_bit_range(instruction, 8, 11);
+    let nibble_3 = get_value_from_bit_range(instruction, 12, 15);
+
+    let nibbles_01 = get_value_from_bit_range(instruction, 0, 7);
+    let nibbles_012 = get_value_from_bit_range(instruction, 0, 11);
+
+    // TODO: interface F instructions
+    match nibble_3 {
+        0x0 => match instruction {
+            0x0 => Ok(InstructionSignature {
+                _function: function::clear_screen_00e0,
+                _arguments: InstructionArguments {
+                    _body: RegisterStructure::NO(NoRegister { _nnn_number: 0 }),
+                    _config: false,
+                },
+            }),
+            0xE => Ok(InstructionSignature {
+                _function: function::subroutine_return_00ee,
+                _arguments: InstructionArguments {
+                    _body: RegisterStructure::NO(NoRegister { _nnn_number: 0 }),
+                    _config: false,
+                },
+            }),
+            _ => Err(IntErrorKind::InvalidDigit),
+        },
+        0x1 => Ok(InstructionSignature {
+            _function: function::jump_1nnn,
+            _arguments: InstructionArguments {
+                _body: RegisterStructure::NO(NoRegister {
+                    _nnn_number: nibbles_012,
+                }),
+                _config: false,
+            },
+        }),
+        0x2 => Ok(InstructionSignature {
+            _function: function::subroutine_2nnn,
+            _arguments: InstructionArguments {
+                _body: RegisterStructure::NO(NoRegister {
+                    _nnn_number: nibbles_012,
+                }),
+                _config: false,
+            },
+        }),
+        0x3 => Ok(InstructionSignature {
+            _function: function::skip_if_equal_3xnn,
+            _arguments: InstructionArguments {
+                _body: RegisterStructure::ONE(OneRegister {
+                    _x_register: nibble_2,
+                    _nn_number: nibbles_01,
+                }),
+                _config: false,
+            },
+        }),
+        0x4 => Ok(InstructionSignature {
+            _function: function::skip_if_not_equal_4xnn,
+            _arguments: InstructionArguments {
+                _body: RegisterStructure::ONE(OneRegister {
+                    _x_register: nibble_2,
+                    _nn_number: nibbles_01,
+                }),
+                _config: false,
+            },
+        }),
+        0x5 => match nibble_0 {
+            0x0 => Ok(InstructionSignature {
+                _function: function::skip_if_registers_equal_5xy0,
+                _arguments: InstructionArguments {
+                    _body: RegisterStructure::TWO(TwoRegister {
+                        _x_register: nibble_2,
+                        _y_register: nibble_1,
+                        _n_number: 0,
+                    }),
+                    _config: false,
+                },
+            }),
+            _ => Err(IntErrorKind::InvalidDigit),
+        },
+        0x6 => Ok(InstructionSignature {
+            _function: function::set_register_to_6xnn,
+            _arguments: InstructionArguments {
+                _body: RegisterStructure::ONE(OneRegister {
+                    _x_register: nibble_2,
+                    _nn_number: nibbles_01,
+                }),
+                _config: false,
+            },
+        }),
+        0x7 => Ok(InstructionSignature {
+            _function: function::add_num_to_register_7xnn,
+            _arguments: InstructionArguments {
+                _body: RegisterStructure::ONE(OneRegister {
+                    _x_register: nibble_2,
+                    _nn_number: nibbles_01,
+                }),
+                _config: false,
+            },
+        }),
+        0x8 => match nibble_0 {
+            0x0 => Ok(InstructionSignature {
+                _function: function::set_one_register_to_another_8xy0,
+                _arguments: InstructionArguments {
+                    _body: RegisterStructure::TWO(TwoRegister {
+                        _x_register: nibble_2,
+                        _y_register: nibble_1,
+                        _n_number: nibble_0,
+                    }),
+                    _config: false,
+                },
+            }),
+            0x1 => Ok(InstructionSignature {
+                _function: function::binary_or_registers_8xy1,
+                _arguments: InstructionArguments {
+                    _body: RegisterStructure::TWO(TwoRegister {
+                        _x_register: nibble_2,
+                        _y_register: nibble_1,
+                        _n_number: nibble_0,
+                    }),
+                    _config: false,
+                },
+            }),
+            0x2 => Ok(InstructionSignature {
+                _function: function::binary_and_registers_8xy2,
+                _arguments: InstructionArguments {
+                    _body: RegisterStructure::TWO(TwoRegister {
+                        _x_register: nibble_2,
+                        _y_register: nibble_1,
+                        _n_number: nibble_0,
+                    }),
+                    _config: false,
+                },
+            }),
+            0x3 => Ok(InstructionSignature {
+                _function: function::binary_xor_register_8xy3,
+                _arguments: InstructionArguments {
+                    _body: RegisterStructure::TWO(TwoRegister {
+                        _x_register: nibble_2,
+                        _y_register: nibble_1,
+                        _n_number: nibble_0,
+                    }),
+                    _config: false,
+                },
+            }),
+            0x4 => Ok(InstructionSignature {
+                _function: function::add_register_to_register_8xy4,
+                _arguments: InstructionArguments {
+                    _body: RegisterStructure::TWO(TwoRegister {
+                        _x_register: nibble_2,
+                        _y_register: nibble_1,
+                        _n_number: nibble_0,
+                    }),
+                    _config: false,
+                },
+            }),
+            0x5 => Ok(InstructionSignature {
+                _function: function::subtract_right_from_left_8xy5,
+                _arguments: InstructionArguments {
+                    _body: RegisterStructure::TWO(TwoRegister {
+                        _x_register: nibble_2,
+                        _y_register: nibble_1,
+                        _n_number: nibble_0,
+                    }),
+                    _config: false,
+                },
+            }),
+            0x6 => Ok(InstructionSignature {
+                _function: function::shift_right_8xy6,
+                _arguments: InstructionArguments {
+                    _body: RegisterStructure::TWO(TwoRegister {
+                        _x_register: nibble_2,
+                        _y_register: nibble_1,
+                        _n_number: nibble_0,
+                    }),
+                    _config: false,
+                },
+            }),
+            0x7 => Ok(InstructionSignature {
+                _function: function::subtract_left_from_right_8xy7,
+                _arguments: InstructionArguments {
+                    _body: RegisterStructure::TWO(TwoRegister {
+                        _x_register: nibble_2,
+                        _y_register: nibble_1,
+                        _n_number: nibble_0,
+                    }),
+                    _config: false,
+                },
+            }),
+            0xE => Ok(InstructionSignature {
+                _function: function::shift_left_8xye,
+                _arguments: InstructionArguments {
+                    _body: RegisterStructure::TWO(TwoRegister {
+                        _x_register: nibble_2,
+                        _y_register: nibble_1,
+                        _n_number: nibble_0,
+                    }),
+                    _config: false,
+                },
+            }),
+            _ => Err(IntErrorKind::InvalidDigit),
+        },
+        0x9 => match nibble_0 {
+            0x0 => Ok(InstructionSignature {
+                _function: function::skip_if_registers_not_equal_9xy0,
+                _arguments: InstructionArguments {
+                    _body: RegisterStructure::TWO(TwoRegister {
+                        _x_register: nibble_2,
+                        _y_register: nibble_1,
+                        _n_number: 0,
+                    }),
+                    _config: false,
+                },
+            }),
+            _ => Err(IntErrorKind::InvalidDigit),
+        },
+        0xA => Ok(InstructionSignature {
+            _function: function::set_index_annn,
+            _arguments: InstructionArguments {
+                _body: RegisterStructure::NO(NoRegister {
+                    _nnn_number: nibbles_012,
+                }),
+                _config: false,
+            },
+        }),
+        0xB => Ok(InstructionSignature {
+            _function: function::jump_with_offset_bnnn,
+            _arguments: InstructionArguments {
+                _body: RegisterStructure::NO(NoRegister {
+                    _nnn_number: nibbles_012,
+                }),
+                _config: false,
+            },
+        }),
+        0xC => Ok(InstructionSignature {
+            _function: function::random_cxnn,
+            _arguments: InstructionArguments {
+                _body: RegisterStructure::ONE(OneRegister {
+                    _x_register: nibble_2,
+                    _nn_number: nibbles_01,
+                }),
+                _config: false,
+            },
+        }),
+        0xD => Ok(InstructionSignature {
+            _function: function::display_dxyn,
+            _arguments: InstructionArguments {
+                _body: RegisterStructure::TWO(TwoRegister {
+                    _x_register: nibble_2,
+                    _y_register: nibble_1,
+                    _n_number: nibble_0,
+                }),
+                _config: false,
+            },
+        }),
+        0xE => match nibbles_01 {
+            0x9E => Ok(InstructionSignature {
+                _function: function::skip_if_pressed_ex9e,
+                _arguments: InstructionArguments {
+                    _body: RegisterStructure::ONE(OneRegister {
+                        _x_register: nibble_2,
+                        _nn_number: 0,
+                    }),
+                    _config: false,
+                },
+            }),
+            0xA1 => Ok(InstructionSignature {
+                _function: function::_skip_if_not_pressed_exa1,
+                _arguments: InstructionArguments {
+                    _body: RegisterStructure::ONE(OneRegister {
+                        _x_register: nibble_2,
+                        _nn_number: 0,
+                    }),
+                    _config: false,
+                },
+            }),
+            _ => Err(IntErrorKind::InvalidDigit),
+        },
+        0xF => match nibbles_01 {
+            0x07 => ,
+            0x15 => ,
+            0x18 => ,
+            0x1E => ,
+            0x0A => ,
+            0x29 => ,
+            0x33 => ,
+            0x55 => ,
+            0x65 => ,
+        }
+        _ => Err(IntErrorKind::InvalidDigit),
+    }
+}
+
+/// Gets a zero-indexed, right-to-left bit range from instruction
+/// TODO: can we do this more elegantly with a bitmask?
 ///
 /// # Arguments
 ///
