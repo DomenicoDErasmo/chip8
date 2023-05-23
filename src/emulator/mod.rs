@@ -1,4 +1,4 @@
-use std::num::IntErrorKind;
+use std::{clone, num::IntErrorKind};
 
 use crate::{function, stack::Stack};
 
@@ -84,32 +84,43 @@ impl Emulator {
 }
 
 pub struct InstructionSignature {
-    _function: fn(&mut Emulator, InstructionArguments) -> (),
-    _arguments: InstructionArguments,
+    function: fn(&mut Emulator, InstructionArguments) -> (),
+    arguments: InstructionArguments,
 }
 
+impl InstructionSignature {
+    pub fn execute(&self, emulator: &mut Emulator) {
+        (self.function)(emulator, self.arguments.clone());
+    }
+}
+
+#[derive(Clone)]
 pub struct InstructionArguments {
     _body: RegisterStructure,
     _config: bool,
 }
 
+#[derive(Clone)]
 enum RegisterStructure {
     TWO(TwoRegister),
     ONE(OneRegister),
     NO(NoRegister),
 }
 
+#[derive(Clone)]
 struct TwoRegister {
     _x_register: u16,
     _y_register: u16,
     _n_number: u16,
 }
 
+#[derive(Clone)]
 struct OneRegister {
     _x_register: u16,
     _nn_number: u16,
 }
 
+#[derive(Clone)]
 struct NoRegister {
     _nnn_number: u16,
 }
@@ -144,19 +155,18 @@ pub fn decode(instruction: u16) -> Result<InstructionSignature, IntErrorKind> {
     let nibbles_01 = get_value_from_bit_range(instruction, 0, 7);
     let nibbles_012 = get_value_from_bit_range(instruction, 0, 11);
 
-    // TODO: interface F instructions
     match nibble_3 {
         0x0 => match instruction {
             0x0 => Ok(InstructionSignature {
-                _function: function::clear_screen_00e0,
-                _arguments: InstructionArguments {
+                function: function::clear_screen_00e0,
+                arguments: InstructionArguments {
                     _body: RegisterStructure::NO(NoRegister { _nnn_number: 0 }),
                     _config: false,
                 },
             }),
             0xE => Ok(InstructionSignature {
-                _function: function::subroutine_return_00ee,
-                _arguments: InstructionArguments {
+                function: function::subroutine_return_00ee,
+                arguments: InstructionArguments {
                     _body: RegisterStructure::NO(NoRegister { _nnn_number: 0 }),
                     _config: false,
                 },
@@ -164,8 +174,8 @@ pub fn decode(instruction: u16) -> Result<InstructionSignature, IntErrorKind> {
             _ => Err(IntErrorKind::InvalidDigit),
         },
         0x1 => Ok(InstructionSignature {
-            _function: function::jump_1nnn,
-            _arguments: InstructionArguments {
+            function: function::jump_1nnn,
+            arguments: InstructionArguments {
                 _body: RegisterStructure::NO(NoRegister {
                     _nnn_number: nibbles_012,
                 }),
@@ -173,8 +183,8 @@ pub fn decode(instruction: u16) -> Result<InstructionSignature, IntErrorKind> {
             },
         }),
         0x2 => Ok(InstructionSignature {
-            _function: function::subroutine_2nnn,
-            _arguments: InstructionArguments {
+            function: function::subroutine_2nnn,
+            arguments: InstructionArguments {
                 _body: RegisterStructure::NO(NoRegister {
                     _nnn_number: nibbles_012,
                 }),
@@ -182,8 +192,8 @@ pub fn decode(instruction: u16) -> Result<InstructionSignature, IntErrorKind> {
             },
         }),
         0x3 => Ok(InstructionSignature {
-            _function: function::skip_if_equal_3xnn,
-            _arguments: InstructionArguments {
+            function: function::skip_if_equal_3xnn,
+            arguments: InstructionArguments {
                 _body: RegisterStructure::ONE(OneRegister {
                     _x_register: nibble_2,
                     _nn_number: nibbles_01,
@@ -192,8 +202,8 @@ pub fn decode(instruction: u16) -> Result<InstructionSignature, IntErrorKind> {
             },
         }),
         0x4 => Ok(InstructionSignature {
-            _function: function::skip_if_not_equal_4xnn,
-            _arguments: InstructionArguments {
+            function: function::skip_if_not_equal_4xnn,
+            arguments: InstructionArguments {
                 _body: RegisterStructure::ONE(OneRegister {
                     _x_register: nibble_2,
                     _nn_number: nibbles_01,
@@ -203,8 +213,8 @@ pub fn decode(instruction: u16) -> Result<InstructionSignature, IntErrorKind> {
         }),
         0x5 => match nibble_0 {
             0x0 => Ok(InstructionSignature {
-                _function: function::skip_if_registers_equal_5xy0,
-                _arguments: InstructionArguments {
+                function: function::skip_if_registers_equal_5xy0,
+                arguments: InstructionArguments {
                     _body: RegisterStructure::TWO(TwoRegister {
                         _x_register: nibble_2,
                         _y_register: nibble_1,
@@ -216,8 +226,8 @@ pub fn decode(instruction: u16) -> Result<InstructionSignature, IntErrorKind> {
             _ => Err(IntErrorKind::InvalidDigit),
         },
         0x6 => Ok(InstructionSignature {
-            _function: function::set_register_to_6xnn,
-            _arguments: InstructionArguments {
+            function: function::set_register_to_6xnn,
+            arguments: InstructionArguments {
                 _body: RegisterStructure::ONE(OneRegister {
                     _x_register: nibble_2,
                     _nn_number: nibbles_01,
@@ -226,8 +236,8 @@ pub fn decode(instruction: u16) -> Result<InstructionSignature, IntErrorKind> {
             },
         }),
         0x7 => Ok(InstructionSignature {
-            _function: function::add_num_to_register_7xnn,
-            _arguments: InstructionArguments {
+            function: function::add_num_to_register_7xnn,
+            arguments: InstructionArguments {
                 _body: RegisterStructure::ONE(OneRegister {
                     _x_register: nibble_2,
                     _nn_number: nibbles_01,
@@ -237,8 +247,8 @@ pub fn decode(instruction: u16) -> Result<InstructionSignature, IntErrorKind> {
         }),
         0x8 => match nibble_0 {
             0x0 => Ok(InstructionSignature {
-                _function: function::set_one_register_to_another_8xy0,
-                _arguments: InstructionArguments {
+                function: function::set_one_register_to_another_8xy0,
+                arguments: InstructionArguments {
                     _body: RegisterStructure::TWO(TwoRegister {
                         _x_register: nibble_2,
                         _y_register: nibble_1,
@@ -248,8 +258,8 @@ pub fn decode(instruction: u16) -> Result<InstructionSignature, IntErrorKind> {
                 },
             }),
             0x1 => Ok(InstructionSignature {
-                _function: function::binary_or_registers_8xy1,
-                _arguments: InstructionArguments {
+                function: function::binary_or_registers_8xy1,
+                arguments: InstructionArguments {
                     _body: RegisterStructure::TWO(TwoRegister {
                         _x_register: nibble_2,
                         _y_register: nibble_1,
@@ -259,8 +269,8 @@ pub fn decode(instruction: u16) -> Result<InstructionSignature, IntErrorKind> {
                 },
             }),
             0x2 => Ok(InstructionSignature {
-                _function: function::binary_and_registers_8xy2,
-                _arguments: InstructionArguments {
+                function: function::binary_and_registers_8xy2,
+                arguments: InstructionArguments {
                     _body: RegisterStructure::TWO(TwoRegister {
                         _x_register: nibble_2,
                         _y_register: nibble_1,
@@ -270,8 +280,8 @@ pub fn decode(instruction: u16) -> Result<InstructionSignature, IntErrorKind> {
                 },
             }),
             0x3 => Ok(InstructionSignature {
-                _function: function::binary_xor_register_8xy3,
-                _arguments: InstructionArguments {
+                function: function::binary_xor_register_8xy3,
+                arguments: InstructionArguments {
                     _body: RegisterStructure::TWO(TwoRegister {
                         _x_register: nibble_2,
                         _y_register: nibble_1,
@@ -281,8 +291,8 @@ pub fn decode(instruction: u16) -> Result<InstructionSignature, IntErrorKind> {
                 },
             }),
             0x4 => Ok(InstructionSignature {
-                _function: function::add_register_to_register_8xy4,
-                _arguments: InstructionArguments {
+                function: function::add_register_to_register_8xy4,
+                arguments: InstructionArguments {
                     _body: RegisterStructure::TWO(TwoRegister {
                         _x_register: nibble_2,
                         _y_register: nibble_1,
@@ -292,8 +302,8 @@ pub fn decode(instruction: u16) -> Result<InstructionSignature, IntErrorKind> {
                 },
             }),
             0x5 => Ok(InstructionSignature {
-                _function: function::subtract_right_from_left_8xy5,
-                _arguments: InstructionArguments {
+                function: function::subtract_right_from_left_8xy5,
+                arguments: InstructionArguments {
                     _body: RegisterStructure::TWO(TwoRegister {
                         _x_register: nibble_2,
                         _y_register: nibble_1,
@@ -303,8 +313,8 @@ pub fn decode(instruction: u16) -> Result<InstructionSignature, IntErrorKind> {
                 },
             }),
             0x6 => Ok(InstructionSignature {
-                _function: function::shift_right_8xy6,
-                _arguments: InstructionArguments {
+                function: function::shift_right_8xy6,
+                arguments: InstructionArguments {
                     _body: RegisterStructure::TWO(TwoRegister {
                         _x_register: nibble_2,
                         _y_register: nibble_1,
@@ -314,8 +324,8 @@ pub fn decode(instruction: u16) -> Result<InstructionSignature, IntErrorKind> {
                 },
             }),
             0x7 => Ok(InstructionSignature {
-                _function: function::subtract_left_from_right_8xy7,
-                _arguments: InstructionArguments {
+                function: function::subtract_left_from_right_8xy7,
+                arguments: InstructionArguments {
                     _body: RegisterStructure::TWO(TwoRegister {
                         _x_register: nibble_2,
                         _y_register: nibble_1,
@@ -325,8 +335,8 @@ pub fn decode(instruction: u16) -> Result<InstructionSignature, IntErrorKind> {
                 },
             }),
             0xE => Ok(InstructionSignature {
-                _function: function::shift_left_8xye,
-                _arguments: InstructionArguments {
+                function: function::shift_left_8xye,
+                arguments: InstructionArguments {
                     _body: RegisterStructure::TWO(TwoRegister {
                         _x_register: nibble_2,
                         _y_register: nibble_1,
@@ -339,8 +349,8 @@ pub fn decode(instruction: u16) -> Result<InstructionSignature, IntErrorKind> {
         },
         0x9 => match nibble_0 {
             0x0 => Ok(InstructionSignature {
-                _function: function::skip_if_registers_not_equal_9xy0,
-                _arguments: InstructionArguments {
+                function: function::skip_if_registers_not_equal_9xy0,
+                arguments: InstructionArguments {
                     _body: RegisterStructure::TWO(TwoRegister {
                         _x_register: nibble_2,
                         _y_register: nibble_1,
@@ -352,8 +362,8 @@ pub fn decode(instruction: u16) -> Result<InstructionSignature, IntErrorKind> {
             _ => Err(IntErrorKind::InvalidDigit),
         },
         0xA => Ok(InstructionSignature {
-            _function: function::set_index_annn,
-            _arguments: InstructionArguments {
+            function: function::set_index_annn,
+            arguments: InstructionArguments {
                 _body: RegisterStructure::NO(NoRegister {
                     _nnn_number: nibbles_012,
                 }),
@@ -361,8 +371,8 @@ pub fn decode(instruction: u16) -> Result<InstructionSignature, IntErrorKind> {
             },
         }),
         0xB => Ok(InstructionSignature {
-            _function: function::jump_with_offset_bnnn,
-            _arguments: InstructionArguments {
+            function: function::jump_with_offset_bnnn,
+            arguments: InstructionArguments {
                 _body: RegisterStructure::NO(NoRegister {
                     _nnn_number: nibbles_012,
                 }),
@@ -370,8 +380,8 @@ pub fn decode(instruction: u16) -> Result<InstructionSignature, IntErrorKind> {
             },
         }),
         0xC => Ok(InstructionSignature {
-            _function: function::random_cxnn,
-            _arguments: InstructionArguments {
+            function: function::random_cxnn,
+            arguments: InstructionArguments {
                 _body: RegisterStructure::ONE(OneRegister {
                     _x_register: nibble_2,
                     _nn_number: nibbles_01,
@@ -380,8 +390,8 @@ pub fn decode(instruction: u16) -> Result<InstructionSignature, IntErrorKind> {
             },
         }),
         0xD => Ok(InstructionSignature {
-            _function: function::display_dxyn,
-            _arguments: InstructionArguments {
+            function: function::display_dxyn,
+            arguments: InstructionArguments {
                 _body: RegisterStructure::TWO(TwoRegister {
                     _x_register: nibble_2,
                     _y_register: nibble_1,
@@ -392,8 +402,8 @@ pub fn decode(instruction: u16) -> Result<InstructionSignature, IntErrorKind> {
         }),
         0xE => match nibbles_01 {
             0x9E => Ok(InstructionSignature {
-                _function: function::skip_if_pressed_ex9e,
-                _arguments: InstructionArguments {
+                function: function::skip_if_pressed_ex9e,
+                arguments: InstructionArguments {
                     _body: RegisterStructure::ONE(OneRegister {
                         _x_register: nibble_2,
                         _nn_number: 0,
@@ -402,8 +412,8 @@ pub fn decode(instruction: u16) -> Result<InstructionSignature, IntErrorKind> {
                 },
             }),
             0xA1 => Ok(InstructionSignature {
-                _function: function::_skip_if_not_pressed_exa1,
-                _arguments: InstructionArguments {
+                function: function::skip_if_not_pressed_exa1,
+                arguments: InstructionArguments {
                     _body: RegisterStructure::ONE(OneRegister {
                         _x_register: nibble_2,
                         _nn_number: 0,
@@ -414,16 +424,98 @@ pub fn decode(instruction: u16) -> Result<InstructionSignature, IntErrorKind> {
             _ => Err(IntErrorKind::InvalidDigit),
         },
         0xF => match nibbles_01 {
-            0x07 => ,
-            0x15 => ,
-            0x18 => ,
-            0x1E => ,
-            0x0A => ,
-            0x29 => ,
-            0x33 => ,
-            0x55 => ,
-            0x65 => ,
-        }
+            0x07 => Ok(InstructionSignature {
+                function: function::set_to_delay_timer_fx07,
+                arguments: InstructionArguments {
+                    _body: RegisterStructure::ONE(OneRegister {
+                        _x_register: nibble_2,
+                        _nn_number: 0,
+                    }),
+                    _config: false,
+                },
+            }),
+            0x15 => Ok(InstructionSignature {
+                function: function::set_delay_timer_to_fx15,
+                arguments: InstructionArguments {
+                    _body: RegisterStructure::ONE(OneRegister {
+                        _x_register: nibble_2,
+                        _nn_number: 0,
+                    }),
+                    _config: false,
+                },
+            }),
+            0x18 => Ok(InstructionSignature {
+                function: function::set_sound_timer_to_fx18,
+                arguments: InstructionArguments {
+                    _body: RegisterStructure::ONE(OneRegister {
+                        _x_register: nibble_2,
+                        _nn_number: 0,
+                    }),
+                    _config: false,
+                },
+            }),
+            0x1E => Ok(InstructionSignature {
+                function: function::add_to_index_fx1e,
+                arguments: InstructionArguments {
+                    _body: RegisterStructure::ONE(OneRegister {
+                        _x_register: nibble_2,
+                        _nn_number: 0,
+                    }),
+                    _config: false,
+                },
+            }),
+            0x0A => Ok(InstructionSignature {
+                function: function::get_key_fx0a,
+                arguments: InstructionArguments {
+                    _body: RegisterStructure::ONE(OneRegister {
+                        _x_register: nibble_2,
+                        _nn_number: 0,
+                    }),
+                    _config: false,
+                },
+            }),
+            0x29 => Ok(InstructionSignature {
+                function: function::set_register_to_character_fx29,
+                arguments: InstructionArguments {
+                    _body: RegisterStructure::ONE(OneRegister {
+                        _x_register: nibble_2,
+                        _nn_number: 0,
+                    }),
+                    _config: false,
+                },
+            }),
+            0x33 => Ok(InstructionSignature {
+                function: function::binary_coded_decimal_conversion_fx33,
+                arguments: InstructionArguments {
+                    _body: RegisterStructure::ONE(OneRegister {
+                        _x_register: nibble_2,
+                        _nn_number: 0,
+                    }),
+                    _config: false,
+                },
+            }),
+            0x55 => Ok(InstructionSignature {
+                function: function::store_to_memory_fx55,
+                arguments: InstructionArguments {
+                    _body: RegisterStructure::ONE(OneRegister {
+                        _x_register: nibble_2,
+                        _nn_number: 0,
+                    }),
+                    _config: false,
+                },
+            }),
+            0x65 => Ok(InstructionSignature {
+                function: function::load_from_memory_fx56,
+                arguments: InstructionArguments {
+                    _body: RegisterStructure::ONE(OneRegister {
+                        _x_register: nibble_2,
+                        _nn_number: 0,
+                    }),
+                    _config: false,
+                },
+            }),
+            _ => Err(IntErrorKind::InvalidDigit),
+        },
         _ => Err(IntErrorKind::InvalidDigit),
     }
 }

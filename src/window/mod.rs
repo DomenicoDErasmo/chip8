@@ -1,6 +1,7 @@
 use crate::emulator;
 use spin_sleep::SpinSleeper;
 use std::collections::HashSet;
+use std::num::IntErrorKind;
 use std::time::{Duration, SystemTime};
 use winit::event::ElementState;
 use winit::window::Icon;
@@ -52,7 +53,7 @@ impl MyWindow {
         icon
     }
 
-    pub fn run(mut self) {
+    pub fn run(&mut self) -> Result<(), IntErrorKind> {
         let mut last_time = Self::current_timestamp();
         let mut counter = 0;
         const FRAMES_PER_SECOND: u32 = 60;
@@ -125,12 +126,10 @@ impl MyWindow {
             assert!(INSTRUCTIONS_PER_SECOND > FRAMES_PER_SECOND);
 
             for _ in 0..=INSTRUCTIONS_PER_FRAME {
-                let _instruction = self.emulator.fetch();
-
-                // TODO: decode
-
-                // TODO: execute
-                continue;
+                // fetch, decode, execute
+                let instruction = self.emulator.fetch();
+                let parsed_instruction = emulator::decode(instruction)?;
+                parsed_instruction.execute(&mut self.emulator);
             }
 
             // end of frame
@@ -153,6 +152,7 @@ impl MyWindow {
             current_time = Self::current_timestamp();
             last_time = current_time;
         }
+        Ok(())
     }
 
     fn current_timestamp() -> u128 {

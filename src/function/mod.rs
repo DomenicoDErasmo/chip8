@@ -109,54 +109,53 @@ pub fn skip_if_pressed_ex9e(
 ) {
 }
 
-pub fn _skip_if_not_pressed_exa1(
+pub fn skip_if_not_pressed_exa1(
     _emulator: &mut Emulator,
     _instructions: emulator::InstructionArguments,
 ) {
 }
 
-pub fn _set_to_delay_timer_fx07(
+pub fn set_to_delay_timer_fx07(
     _emulator: &mut Emulator,
     _instructions: emulator::InstructionArguments,
 ) {
 }
 
-pub fn _set_delay_timer_to_fx15(
+pub fn set_delay_timer_to_fx15(
     _emulator: &mut Emulator,
     _instructions: emulator::InstructionArguments,
 ) {
 }
 
-pub fn _set_sound_timer_to_fx18(
+pub fn set_sound_timer_to_fx18(
     _emulator: &mut Emulator,
     _instructions: emulator::InstructionArguments,
 ) {
 }
 
-pub fn _add_to_index_fx1e(_emulator: &mut Emulator, _instructions: emulator::InstructionArguments) {
-}
+pub fn add_to_index_fx1e(_emulator: &mut Emulator, _instructions: emulator::InstructionArguments) {}
 
-pub fn _get_key_fx0a(_emulator: &mut Emulator, _instructions: emulator::InstructionArguments) {}
+pub fn get_key_fx0a(_emulator: &mut Emulator, _instructions: emulator::InstructionArguments) {}
 
-pub fn _set_register_to_character_fx29(
+pub fn set_register_to_character_fx29(
     _emulator: &mut Emulator,
     _instructions: emulator::InstructionArguments,
 ) {
 }
 
-pub fn _binary_coded_decimal_conversion_fx33(
+pub fn binary_coded_decimal_conversion_fx33(
     _emulator: &mut Emulator,
     _instructions: emulator::InstructionArguments,
 ) {
 }
 
-pub fn _store_to_memory_fx55(
+pub fn store_to_memory_fx55(
     _emulator: &mut Emulator,
     _instructions: emulator::InstructionArguments,
 ) {
 }
 
-pub fn _load_from_memory_fx56(
+pub fn load_from_memory_fx56(
     _emulator: &mut Emulator,
     _instructions: emulator::InstructionArguments,
 ) {
