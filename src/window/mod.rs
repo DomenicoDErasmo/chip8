@@ -13,7 +13,7 @@ use winit::{
 use winit::{event_loop::EventLoop, window::Window, window::WindowBuilder};
 
 pub struct MyWindow {
-    emulator: emulator::Emulator,
+    _emulator: emulator::Emulator,
     event_loop: EventLoop<()>,
     pub window: Window,
 }
@@ -32,7 +32,7 @@ impl MyWindow {
             Err(_) => panic!("Couldn't make window"),
         };
         let window = MyWindow {
-            emulator,
+            _emulator: emulator,
             event_loop,
             window,
         };
@@ -55,7 +55,7 @@ impl MyWindow {
 
     pub fn run(&mut self) -> Result<(), IntErrorKind> {
         let mut last_time = Self::current_timestamp();
-        let mut counter = 0;
+        let mut frame_counter = 0;
         const FRAMES_PER_SECOND: u32 = 60;
 
         let mut running = true;
@@ -127,9 +127,10 @@ impl MyWindow {
 
             for _ in 0..=INSTRUCTIONS_PER_FRAME {
                 // fetch, decode, execute
-                let instruction = self.emulator.fetch();
-                let parsed_instruction = emulator::decode(instruction)?;
-                parsed_instruction.execute(&mut self.emulator);
+                // let instruction = self.emulator.fetch();
+                // let parsed_instruction = emulator::decode(instruction)?;
+                // self.emulator.increment_program_counter();
+                // parsed_instruction.execute(&mut self.emulator);
             }
 
             // end of frame
@@ -137,10 +138,10 @@ impl MyWindow {
 
             let time_delta = u32::try_from(current_time - last_time).unwrap_or(0);
 
-            counter = counter + 2;
-            if counter >= FRAMES_PER_SECOND {
+            frame_counter = frame_counter + 1;
+            if frame_counter >= FRAMES_PER_SECOND {
                 println!("A second has passed");
-                counter = 0;
+                frame_counter = 0;
             }
 
             // end of processing for this visual frame

@@ -1,4 +1,4 @@
-use std::{clone, num::IntErrorKind};
+use std::num::IntErrorKind;
 
 use crate::{function, stack::Stack};
 
