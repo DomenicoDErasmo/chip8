@@ -1,7 +1,7 @@
 use cgmath::prelude::*;
 use wgpu::util::DeviceExt;
 
-pub struct State {
+pub struct RendererState {
     surface: wgpu::Surface,
     device: wgpu::Device,
     queue: wgpu::Queue,
@@ -16,7 +16,7 @@ pub struct State {
     instance_buffer: wgpu::Buffer,
 }
 
-impl State {
+impl RendererState {
     pub async fn new(window: winit::window::Window) -> Self {
         let size = window.inner_size();
 

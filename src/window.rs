@@ -5,14 +5,14 @@ pub async fn run() {
         .build(&event_loop)
         .unwrap();
 
-    let mut state = crate::state::State::new(window).await;
+    let mut renderer = crate::renderer::RendererState::new(window).await;
 
     event_loop.run(move |event, _, control_flow| match event {
         winit::event::Event::WindowEvent {
             window_id,
             ref event,
-        } if window_id == state.window().id() => {
-            if !state.input(event) {
+        } if window_id == renderer.window().id() => {
+            if !renderer.input(event) {
                 match event {
                     winit::event::WindowEvent::CloseRequested
                     | winit::event::WindowEvent::KeyboardInput {
@@ -25,20 +25,20 @@ pub async fn run() {
                         ..
                     } => *control_flow = winit::event_loop::ControlFlow::Exit,
                     winit::event::WindowEvent::Resized(physical_size) => {
-                        state.resize(*physical_size);
+                        renderer.resize(*physical_size);
                     }
                     winit::event::WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
-                        state.resize(**new_inner_size);
+                        renderer.resize(**new_inner_size);
                     }
                     _ => {}
                 }
             }
         }
-        winit::event::Event::RedrawRequested(window_id) if window_id == state.window().id() => {
-            state.update();
-            match state.render() {
+        winit::event::Event::RedrawRequested(window_id) if window_id == renderer.window().id() => {
+            renderer.update();
+            match renderer.render() {
                 Ok(_) => {}
-                Err(wgpu::SurfaceError::Lost) => state.resize(state.size),
+                Err(wgpu::SurfaceError::Lost) => renderer.resize(renderer.size),
                 Err(wgpu::SurfaceError::OutOfMemory) => {
                     *control_flow = winit::event_loop::ControlFlow::Exit
                 }
@@ -46,7 +46,7 @@ pub async fn run() {
             }
         }
         winit::event::Event::MainEventsCleared => {
-            state.window().request_redraw();
+            renderer.window().request_redraw();
         }
         _ => {}
     });
