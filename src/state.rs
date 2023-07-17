@@ -1,3 +1,4 @@
+use cgmath::prelude::*;
 use wgpu::util::DeviceExt;
 
 pub struct State {
@@ -9,7 +10,10 @@ pub struct State {
     window: winit::window::Window,
     render_pipeline: wgpu::RenderPipeline,
     vertex_buffer: wgpu::Buffer,
-    num_vertices: u32,
+    index_buffer: wgpu::Buffer,
+    num_indices: u32,
+    instances: Vec<crate::instance::Instance>,
+    instance_buffer: wgpu::Buffer,
 }
 
 impl State {
@@ -81,14 +85,20 @@ impl State {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: "vs_main",
-                buffers: &[crate::vertex::Vertex::desc()],
+                buffers: &[
+                    crate::vertex::Vertex::desc(),
+                    crate::instance::InstanceRaw::desc(),
+                ],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
                 entry_point: "fs_main",
                 targets: &[Some(wgpu::ColorTargetState {
                     format: config.format,
-                    blend: Some(wgpu::BlendState::REPLACE),
+                    blend: Some(wgpu::BlendState {
+                        color: wgpu::BlendComponent::REPLACE,
+                        alpha: wgpu::BlendComponent::REPLACE,
+                    }),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
             }),
@@ -110,13 +120,54 @@ impl State {
             multiview: None,
         });
 
+        let unit_pixel = crate::screen::Pixel::new(&window);
+
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Vertex Buffer"),
-            contents: bytemuck::cast_slice(crate::vertex::VERTICES),
+            contents: bytemuck::cast_slice(&unit_pixel.vertices),
             usage: wgpu::BufferUsages::VERTEX,
         });
 
-        let num_vertices = crate::vertex::VERTICES.len() as u32;
+        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Index Buffer"),
+            contents: bytemuck::cast_slice(&unit_pixel.indices),
+            usage: wgpu::BufferUsages::INDEX,
+        });
+
+        let num_indices = unit_pixel.indices.len() as u32;
+
+        let instances = (0..crate::screen::HEIGHT)
+            .flat_map(|y| {
+                (0..crate::screen::WIDTH).map(move |x| {
+                    let position = cgmath::Vector3 {
+                        x: x as f32,
+                        y: y as f32,
+                        z: 0.0,
+                    } - crate::screen::INSTANCE_DISPLACEMENT;
+
+                    let rotation = if position.is_zero() {
+                        cgmath::Quaternion::from_axis_angle(
+                            cgmath::Vector3::unit_z(),
+                            cgmath::Deg(0.0),
+                        )
+                    } else {
+                        cgmath::Quaternion::from_axis_angle(position.normalize(), cgmath::Deg(0.0))
+                    };
+
+                    crate::instance::Instance { position, rotation }
+                })
+            })
+            .collect::<Vec<_>>();
+
+        let instance_data = instances
+            .iter()
+            .map(crate::instance::Instance::to_raw)
+            .collect::<Vec<_>>();
+        let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Instance Buffer"),
+            contents: bytemuck::cast_slice(&instance_data),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
 
         Self {
             size,
@@ -127,7 +178,10 @@ impl State {
             window,
             render_pipeline,
             vertex_buffer,
-            num_vertices,
+            index_buffer,
+            num_indices,
+            instances,
+            instance_buffer,
         }
     }
 
@@ -182,7 +236,9 @@ impl State {
 
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-            render_pass.draw(0..self.num_vertices, 0..1);
+            render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
+            render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+            render_pass.draw_indexed(0..self.num_indices, 0, 0..self.instances.len() as _);
         }
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
