@@ -120,7 +120,7 @@ impl State {
             multiview: None,
         });
 
-        let unit_pixel = crate::screen::Pixel::new(&window);
+        let unit_pixel = crate::screen::Pixel::new();
 
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Vertex Buffer"),
@@ -136,14 +136,14 @@ impl State {
 
         let num_indices = unit_pixel.indices.len() as u32;
 
-        let instances = (0..crate::screen::HEIGHT)
+        let instances = (0..crate::screen::SCREEN_HEIGHT)
             .flat_map(|y| {
-                (0..crate::screen::WIDTH).map(move |x| {
+                (0..crate::screen::SCREEN_WIDTH).map(move |x| {
                     let position = cgmath::Vector3 {
-                        x: x as f32,
-                        y: y as f32,
+                        x: 2.0 * x as f32 / crate::screen::SCREEN_WIDTH as f32,
+                        y: 2.0 * y as f32 / crate::screen::SCREEN_HEIGHT as f32,
                         z: 0.0,
-                    } - crate::screen::INSTANCE_DISPLACEMENT;
+                    };
 
                     let rotation = if position.is_zero() {
                         cgmath::Quaternion::from_axis_angle(
