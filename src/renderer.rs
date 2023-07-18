@@ -136,12 +136,13 @@ impl RendererState {
 
         let num_indices = unit_pixel.indices.len() as u32;
 
+        // TODO: how to get some space in between instances?
         let instances = (0..crate::screen::SCREEN_HEIGHT)
             .flat_map(|y| {
                 (0..crate::screen::SCREEN_WIDTH).map(move |x| {
                     let position = cgmath::Vector3 {
-                        x: 2.0 * x as f32 / crate::screen::SCREEN_WIDTH as f32,
-                        y: 2.0 * y as f32 / crate::screen::SCREEN_HEIGHT as f32,
+                        x: crate::screen::PIXEL_WIDTH * x as f32,
+                        y: crate::screen::PIXEL_HEIGHT * y as f32,
                         z: 0.0,
                     };
 
@@ -223,8 +224,8 @@ impl RendererState {
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.1,
-                            g: 0.2,
+                            r: 0.3,
+                            g: 0.3,
                             b: 0.3,
                             a: 1.0,
                         }),
