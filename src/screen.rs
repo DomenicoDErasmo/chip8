@@ -22,19 +22,15 @@ impl Pixel {
                         -1.0 + PIXEL_HEIGHT * grid_multiplier,
                         0.0,
                     ],
-                    color: [0.0, 0.0, 0.0],
                 },
                 crate::vertex::Vertex {
                     position: [-1.0, -1.0 + PIXEL_HEIGHT * grid_multiplier, 0.0],
-                    color: [0.0, 0.0, 0.0],
                 },
                 crate::vertex::Vertex {
                     position: [-1.0, -1.0, 0.0],
-                    color: [0.0, 0.0, 0.0],
                 },
                 crate::vertex::Vertex {
                     position: [-1.0 + PIXEL_WIDTH * grid_multiplier, -1.0, 0.0],
-                    color: [0.0, 0.0, 0.0],
                 },
             ],
             indices: [0, 1, 2, 0, 2, 3],

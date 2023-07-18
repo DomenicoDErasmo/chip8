@@ -136,14 +136,21 @@ impl RendererState {
 
         let num_indices = unit_pixel.indices.len() as u32;
 
-        // TODO: how to get some space in between instances?
-        let instances = (0..crate::screen::SCREEN_HEIGHT)
+        // instances are 0-indexed from the bottom-left going top-right
+        let mut instances = (0..crate::screen::SCREEN_HEIGHT)
             .flat_map(|y| {
                 (0..crate::screen::SCREEN_WIDTH).map(move |x| {
                     let position = cgmath::Vector3 {
                         x: crate::screen::PIXEL_WIDTH * x as f32,
                         y: crate::screen::PIXEL_HEIGHT * y as f32,
                         z: 0.0,
+                    };
+
+                    let color = cgmath::Vector4 {
+                        x: 0.0,
+                        y: 0.0,
+                        z: 0.0,
+                        w: 0.0,
                     };
 
                     let rotation = if position.is_zero() {
@@ -155,7 +162,11 @@ impl RendererState {
                         cgmath::Quaternion::from_axis_angle(position.normalize(), cgmath::Deg(0.0))
                     };
 
-                    crate::instance::Instance { position, rotation }
+                    crate::instance::Instance {
+                        position,
+                        rotation,
+                        color,
+                    }
                 })
             })
             .collect::<Vec<_>>();
