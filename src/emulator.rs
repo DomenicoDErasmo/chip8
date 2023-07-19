@@ -1,7 +1,7 @@
 pub struct Emulator {
     pub renderer: crate::renderer::RendererState,
     pub event_loop: winit::event_loop::EventLoop<()>,
-    memory: [u8; 512],
+    memory: [u8; 4096],
 }
 
 impl Emulator {
@@ -11,8 +11,9 @@ impl Emulator {
             .build(&event_loop)
             .unwrap();
         let renderer = crate::renderer::RendererState::new(window).await;
-        let mut memory = [0x00; 512];
-        // TODO: memory font
+        let mut memory = [0x00; 4096];
+        Self::load_font(&mut memory);
+
         Self {
             event_loop,
             renderer,
@@ -70,5 +71,30 @@ impl Emulator {
                 }
                 _ => {}
             });
+    }
+
+    // TODO: more idiomatic way of loading to array range?
+    fn load_font(memory: &mut [u8; 4096]) {
+        let font = &[
+            0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
+            0x20, 0x60, 0x20, 0x20, 0x70, // 1
+            0xF0, 0x10, 0xF0, 0x80, 0xF0, // 2
+            0xF0, 0x10, 0xF0, 0x10, 0xF0, // 3
+            0x90, 0x90, 0xF0, 0x10, 0x10, // 4
+            0xF0, 0x80, 0xF0, 0x10, 0xF0, // 5
+            0xF0, 0x80, 0xF0, 0x90, 0xF0, // 6
+            0xF0, 0x10, 0x20, 0x40, 0x40, // 7
+            0xF0, 0x90, 0xF0, 0x90, 0xF0, // 8
+            0xF0, 0x90, 0xF0, 0x10, 0xF0, // 9
+            0xF0, 0x90, 0xF0, 0x90, 0x90, // A
+            0xE0, 0x90, 0xE0, 0x90, 0xE0, // B
+            0xF0, 0x80, 0x80, 0x80, 0xF0, // C
+            0xE0, 0x90, 0x90, 0x90, 0xE0, // D
+            0xF0, 0x80, 0xF0, 0x80, 0xF0, // E
+            0xF0, 0x80, 0xF0, 0x80, 0x80, // F
+        ];
+        for i in 0x50..0x9F {
+            memory[i] = font[i - 0x50];
+        }
     }
 }
