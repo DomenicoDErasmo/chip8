@@ -1,7 +1,10 @@
 pub struct Emulator {
     pub renderer: crate::renderer::RendererState,
     pub event_loop: winit::event_loop::EventLoop<()>,
-    memory: [u8; 4096],
+    _memory: [u8; 4096],
+    _stack: crate::stack::Stack,
+    _delay_timer: crate::timer::Timer,
+    _sound_timer: crate::timer::Timer,
 }
 
 impl Emulator {
@@ -14,10 +17,17 @@ impl Emulator {
         let mut memory = [0x00; 4096];
         Self::load_font(&mut memory);
 
+        let stack = crate::stack::Stack::new();
+        let delay_timer = crate::timer::Timer::new();
+        let sound_timer = crate::timer::Timer::new();
+
         Self {
             event_loop,
             renderer,
-            memory,
+            _memory: memory,
+            _stack: stack,
+            _delay_timer: delay_timer,
+            _sound_timer: sound_timer,
         }
     }
     pub async fn run(mut self) {
@@ -73,7 +83,6 @@ impl Emulator {
             });
     }
 
-    // TODO: more idiomatic way of loading to array range?
     fn load_font(memory: &mut [u8; 4096]) {
         let font = &[
             0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
@@ -93,8 +102,7 @@ impl Emulator {
             0xF0, 0x80, 0xF0, 0x80, 0xF0, // E
             0xF0, 0x80, 0xF0, 0x80, 0x80, // F
         ];
-        for i in 0x50..0x9F {
-            memory[i] = font[i - 0x50];
-        }
+        memory[0x50..0xA0].clone_from_slice(font);
     }
+    
 }
