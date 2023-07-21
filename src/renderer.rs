@@ -210,6 +210,7 @@ impl RendererState {
         }
     }
 
+    // TODO: move to emulator function
     pub fn input(&mut self, _event: &winit::event::WindowEvent) -> bool {
         false
     }

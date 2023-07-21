@@ -30,6 +30,8 @@ impl Emulator {
             _sound_timer: sound_timer,
         }
     }
+
+    // TODO: make a mutable reference?
     pub async fn run(mut self) {
         env_logger::init();
         self.event_loop
@@ -104,5 +106,4 @@ impl Emulator {
         ];
         memory[0x50..0xA0].clone_from_slice(font);
     }
-    
 }
