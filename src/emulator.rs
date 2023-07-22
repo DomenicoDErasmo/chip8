@@ -66,7 +66,6 @@ impl Emulator {
 
     pub async fn run(mut self) {
         env_logger::init();
-        let mut i = 0;
         self.event_loop.run(move |event, _, control_flow| {
             let start_frame = std::time::Instant::now();
 
