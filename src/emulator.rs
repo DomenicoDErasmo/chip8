@@ -1,3 +1,9 @@
+use std::time::Duration;
+
+use winit::event::VirtualKeyCode;
+
+const FPS: f64 = 60.0;
+
 pub struct Emulator {
     pub renderer: crate::renderer::RendererState,
     pub event_loop: winit::event_loop::EventLoop<()>,
@@ -5,6 +11,9 @@ pub struct Emulator {
     _stack: crate::stack::Stack,
     _delay_timer: crate::timer::Timer,
     _sound_timer: crate::timer::Timer,
+    _program_counter: u16,
+    _variable_registers: [bool; 16],
+    pressed: std::collections::HashMap<VirtualKeyCode, bool>,
 }
 
 impl Emulator {
@@ -17,71 +26,87 @@ impl Emulator {
         let mut memory = [0x00; 4096];
         Self::load_font(&mut memory);
 
-        let stack = crate::stack::Stack::new();
-        let delay_timer = crate::timer::Timer::new();
-        let sound_timer = crate::timer::Timer::new();
+        let _stack = crate::stack::Stack::new();
+        let _delay_timer = crate::timer::Timer::new();
+        let _sound_timer = crate::timer::Timer::new();
+        let _program_counter = 0;
+        let _variable_registers = [false; 16];
+
+        let _pressed = std::collections::HashMap::from([
+            (VirtualKeyCode::Key1, false),
+            (VirtualKeyCode::Key2, false),
+            (VirtualKeyCode::Key3, false),
+            (VirtualKeyCode::Key4, false),
+            (VirtualKeyCode::Q, false),
+            (VirtualKeyCode::W, false),
+            (VirtualKeyCode::E, false),
+            (VirtualKeyCode::R, false),
+            (VirtualKeyCode::A, false),
+            (VirtualKeyCode::S, false),
+            (VirtualKeyCode::D, false),
+            (VirtualKeyCode::F, false),
+            (VirtualKeyCode::Z, false),
+            (VirtualKeyCode::X, false),
+            (VirtualKeyCode::C, false),
+            (VirtualKeyCode::V, false),
+        ]);
 
         Self {
             event_loop,
             renderer,
             _memory: memory,
-            _stack: stack,
-            _delay_timer: delay_timer,
-            _sound_timer: sound_timer,
+            _stack,
+            _delay_timer,
+            _sound_timer,
+            _program_counter,
+            _variable_registers,
+            pressed: _pressed,
         }
     }
 
     pub async fn run(mut self) {
         env_logger::init();
-        self.event_loop
-            .run(move |event, _, control_flow| match event {
+        let mut i = 0;
+        self.event_loop.run(move |event, _, control_flow| {
+            let start_frame = std::time::Instant::now();
+
+            // input
+            match event {
                 winit::event::Event::WindowEvent {
                     window_id,
                     ref event,
-                } if window_id == self.renderer.window().id() => {
-                    if !self.renderer.input(event) {
-                        match event {
-                            winit::event::WindowEvent::CloseRequested
-                            | winit::event::WindowEvent::KeyboardInput {
-                                input:
-                                    winit::event::KeyboardInput {
-                                        state: winit::event::ElementState::Pressed,
-                                        virtual_keycode: Some(winit::event::VirtualKeyCode::Escape),
-                                        ..
-                                    },
+                } if window_id == self.renderer.window().id() => match event {
+                    winit::event::WindowEvent::KeyboardInput {
+                        input:
+                            winit::event::KeyboardInput {
+                                state: winit::event::ElementState::Pressed,
+                                virtual_keycode: Some(keycode),
                                 ..
-                            } => *control_flow = winit::event_loop::ControlFlow::Exit,
-                            winit::event::WindowEvent::Resized(physical_size) => {
-                                self.renderer.resize(*physical_size);
-                            }
-                            winit::event::WindowEvent::ScaleFactorChanged {
-                                new_inner_size,
-                                ..
-                            } => {
-                                self.renderer.resize(**new_inner_size);
-                            }
-                            _ => {}
-                        }
+                            },
+                        ..
+                    } if self.pressed.contains_key(&keycode) => {
+                        *self.pressed.get_mut(keycode).unwrap() = true;
                     }
-                }
-                winit::event::Event::RedrawRequested(window_id)
-                    if window_id == self.renderer.window().id() =>
-                {
-                    self.renderer.update();
-                    match self.renderer.render() {
-                        Ok(_) => {}
-                        Err(wgpu::SurfaceError::Lost) => self.renderer.resize(self.renderer.size),
-                        Err(wgpu::SurfaceError::OutOfMemory) => {
-                            *control_flow = winit::event_loop::ControlFlow::Exit
-                        }
-                        Err(e) => eprint!("{:?}", e),
-                    }
-                }
-                winit::event::Event::MainEventsCleared => {
-                    self.renderer.window().request_redraw();
-                }
+                    _ => {}
+                },
                 _ => {}
-            });
+            };
+
+            for _ in 0..12 {
+                // fetch
+                // decode
+                // execute
+            }
+
+            // render
+            self.renderer.run(event, control_flow);
+
+            // TODO: state reset - set keys to unpressed (should I do this elsewhere? do I need this?)
+
+            // sleep to maintain FPS
+            let time_passed = (1_000_000_000.0 / FPS) - start_frame.elapsed().as_nanos() as f64;
+            spin_sleep::sleep(Duration::new(0, time_passed as u32));
+        });
     }
 
     fn load_font(memory: &mut [u8; 4096]) {

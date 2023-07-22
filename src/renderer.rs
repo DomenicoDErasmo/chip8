@@ -198,6 +198,52 @@ impl RendererState {
         }
     }
 
+    pub fn run(
+        &mut self,
+        event: winit::event::Event<()>,
+        control_flow: &mut winit::event_loop::ControlFlow,
+    ) {
+        match event {
+            winit::event::Event::WindowEvent {
+                window_id,
+                ref event,
+            } if window_id == self.window().id() => match event {
+                winit::event::WindowEvent::CloseRequested
+                | winit::event::WindowEvent::KeyboardInput {
+                    input:
+                        winit::event::KeyboardInput {
+                            state: winit::event::ElementState::Pressed,
+                            virtual_keycode: Some(winit::event::VirtualKeyCode::Escape),
+                            ..
+                        },
+                    ..
+                } => *control_flow = winit::event_loop::ControlFlow::Exit,
+                winit::event::WindowEvent::Resized(physical_size) => {
+                    self.resize(*physical_size);
+                }
+                winit::event::WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
+                    self.resize(**new_inner_size);
+                }
+                _ => {}
+            },
+            winit::event::Event::RedrawRequested(window_id) if window_id == self.window().id() => {
+                self.update();
+                match self.render() {
+                    Ok(_) => {}
+                    Err(wgpu::SurfaceError::Lost) => self.resize(self.size),
+                    Err(wgpu::SurfaceError::OutOfMemory) => {
+                        *control_flow = winit::event_loop::ControlFlow::Exit
+                    }
+                    Err(e) => eprint!("{:?}", e),
+                }
+            }
+            winit::event::Event::MainEventsCleared => {
+                self.window().request_redraw();
+            }
+            _ => {}
+        }
+    }
+
     pub fn window(&self) -> &winit::window::Window {
         &self.window
     }
@@ -209,10 +255,6 @@ impl RendererState {
             self.config.height = new_size.height;
             self.surface.configure(&self.device, &self.config);
         }
-    }
-
-    pub fn input(&mut self, _event: &winit::event::WindowEvent) -> bool {
-        false
     }
 
     pub fn update(&mut self) {}
