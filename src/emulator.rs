@@ -31,7 +31,6 @@ impl Emulator {
         }
     }
 
-    // TODO: make a mutable reference?
     pub async fn run(mut self) {
         env_logger::init();
         self.event_loop

@@ -137,7 +137,8 @@ impl RendererState {
         let num_indices = unit_pixel.indices.len() as u32;
 
         // instances are 0-indexed from the bottom-left going top-right
-        let mut instances = (0..crate::screen::SCREEN_HEIGHT)
+        // TODO: make mut when ready to change colors on screen
+        let instances = (0..crate::screen::SCREEN_HEIGHT)
             .flat_map(|y| {
                 (0..crate::screen::SCREEN_WIDTH).map(move |x| {
                     let position = cgmath::Vector3 {
@@ -210,7 +211,6 @@ impl RendererState {
         }
     }
 
-    // TODO: move to emulator function
     pub fn input(&mut self, _event: &winit::event::WindowEvent) -> bool {
         false
     }
