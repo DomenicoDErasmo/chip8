@@ -15,7 +15,7 @@ impl Stack {
         self.contents.push(val);
     }
 
-    pub fn pop(&mut self) {
-        self.contents.pop();
+    pub fn pop(&mut self) -> Option<u16> {
+        self.contents.pop()
     }
 }

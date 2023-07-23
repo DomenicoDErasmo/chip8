@@ -7,11 +7,11 @@ const FPS: f64 = 60.0;
 pub struct Emulator {
     pub renderer: crate::renderer::RendererState,
     pub event_loop: winit::event_loop::EventLoop<()>,
-    _memory: [u8; 4096],
-    _stack: crate::stack::Stack,
+    memory: [u8; 4096],
+    stack: crate::stack::Stack,
     _delay_timer: crate::timer::Timer,
     _sound_timer: crate::timer::Timer,
-    _program_counter: u16,
+    program_counter: u16,
     _variable_registers: [bool; 16],
     pressed: std::collections::HashMap<VirtualKeyCode, bool>,
 }
@@ -29,10 +29,10 @@ impl Emulator {
         let _stack = crate::stack::Stack::new();
         let _delay_timer = crate::timer::Timer::new();
         let _sound_timer = crate::timer::Timer::new();
-        let _program_counter = 0;
+        let program_counter = 0;
         let _variable_registers = [false; 16];
 
-        let _pressed = std::collections::HashMap::from([
+        let pressed = std::collections::HashMap::from([
             (VirtualKeyCode::Key1, false),
             (VirtualKeyCode::Key2, false),
             (VirtualKeyCode::Key3, false),
@@ -54,13 +54,13 @@ impl Emulator {
         Self {
             event_loop,
             renderer,
-            _memory: memory,
-            _stack,
+            memory,
+            stack: _stack,
             _delay_timer,
             _sound_timer,
-            _program_counter,
+            program_counter,
             _variable_registers,
-            pressed: _pressed,
+            pressed,
         }
     }
 
@@ -91,16 +91,25 @@ impl Emulator {
                 _ => {}
             };
 
+            // 12 instructions per frame = 720 instructions per second given 60 FPS
             for _ in 0..12 {
                 // fetch
-                // decode
-                // execute
+                let read_location = self.program_counter as usize;
+                let larger_byte = self.memory[read_location];
+                let smaller_byte = self.memory[read_location + 1];
+                let parsed_instruction = combine_bytes_into_instruction(larger_byte, smaller_byte);
+
+                // decode and execute
+                self.execute_instruction(parsed_instruction);
             }
 
             // render
             self.renderer.run(event, control_flow);
 
-            // TODO: state reset - set keys to unpressed (should I do this elsewhere? do I need this?)
+            // key state reset after every frame
+            for value in self.pressed.values_mut() {
+                *value = false;
+            }
 
             // sleep to maintain FPS
             let time_passed = (1_000_000_000.0 / FPS) - start_frame.elapsed().as_nanos() as f64;
@@ -129,4 +138,51 @@ impl Emulator {
         ];
         memory[0x50..0xA0].clone_from_slice(font);
     }
+
+    fn execute_instruction(&mut self, parsed_instruction: u16) {
+        let first_nibble =
+            crate::bit_utils::get_u16_bit_range_as_number(parsed_instruction, 12, 16).unwrap();
+        let second_nibble =
+            crate::bit_utils::get_u16_bit_range_as_number(parsed_instruction, 8, 12).unwrap();
+        let third_nibble =
+            crate::bit_utils::get_u16_bit_range_as_number(parsed_instruction, 4, 8).unwrap();
+        let fourth_nibble =
+            crate::bit_utils::get_u16_bit_range_as_number(parsed_instruction, 0, 4).unwrap();
+        let memory_address =
+            crate::bit_utils::get_u16_bit_range_as_number(parsed_instruction, 4, 16).unwrap();
+        let two_nibble_argument =
+            crate::bit_utils::get_u16_bit_range_as_number(parsed_instruction, 8, 18).unwrap();
+
+        match first_nibble {
+            0x0 => match fourth_nibble {
+                0xE => self.return_from_stack(),
+            },
+            _ => {}
+        };
+    }
+
+    pub fn return_from_stack(&mut self) {
+        self.program_counter = self.stack.pop().unwrap();
+    }
+}
+
+fn combine_bytes_into_instruction(larger_byte: u8, smaller_byte: u8) -> u16 {
+    let mut result: u16 = 0;
+    for i in 8..16 {
+        result = crate::bit_utils::set_bit_from_other_number(larger_byte.into(), i - 8, result, i);
+    }
+
+    for i in 0..8 {
+        result = crate::bit_utils::set_bit_from_other_number(smaller_byte.into(), i, result, i);
+    }
+
+    result
+}
+
+#[test]
+pub fn test_combine_bytes_into_instruction() {
+    assert_eq!(
+        combine_bytes_into_instruction(0b00000100, 0b00100000),
+        0b0000010000100000
+    );
 }
