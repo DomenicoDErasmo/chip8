@@ -1,5 +1,4 @@
 use std::time::Duration;
-
 use winit::event::VirtualKeyCode;
 
 const FPS: f64 = 60.0;
@@ -17,6 +16,7 @@ pub struct Emulator {
 }
 
 impl Emulator {
+    // TODO: fix new, pass window into emulator?
     pub async fn new() -> Self {
         let event_loop = winit::event_loop::EventLoop::new();
         let window = winit::window::WindowBuilder::new()
@@ -64,9 +64,10 @@ impl Emulator {
         }
     }
 
-    pub async fn run(mut self) {
+    // TODO: move event loop outside of emulator
+    pub async fn run(&'static mut self, event_loop: winit::event_loop::EventLoop<()>) {
         env_logger::init();
-        self.event_loop.run(move |event, _, control_flow| {
+        event_loop.run(move |event, _, control_flow| {
             let start_frame = std::time::Instant::now();
 
             // input
@@ -156,6 +157,7 @@ impl Emulator {
         match first_nibble {
             0x0 => match fourth_nibble {
                 0xE => self.return_from_stack(),
+                _ => {}
             },
             _ => {}
         };
