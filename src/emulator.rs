@@ -16,7 +16,6 @@ pub struct Emulator {
 }
 
 impl Emulator {
-    // TODO: fix new, pass window into emulator?
     pub async fn new() -> Self {
         let event_loop = winit::event_loop::EventLoop::new();
         let window = winit::window::WindowBuilder::new()
@@ -64,10 +63,9 @@ impl Emulator {
         }
     }
 
-    // TODO: move event loop outside of emulator
-    pub async fn run(&'static mut self, event_loop: winit::event_loop::EventLoop<()>) {
+    pub async fn run(mut self) {
         env_logger::init();
-        event_loop.run(move |event, _, control_flow| {
+        self.event_loop.run(move |event, _, control_flow| {
             let start_frame = std::time::Instant::now();
 
             // input
