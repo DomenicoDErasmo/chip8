@@ -33,8 +33,15 @@ impl Emulator {
 
     pub async fn run(mut self) {
         env_logger::init();
-        self.event_loop
-            .run(move |event, _, control_flow| match event {
+        self.event_loop.run(move |event, _, control_flow| {
+            match event {
+                winit::event::Event::WindowEvent { ref event, .. } => {}
+                _ => {}
+            };
+
+            for _ in 0..12 {}
+
+            match event {
                 winit::event::Event::WindowEvent {
                     window_id,
                     ref event,
@@ -81,7 +88,8 @@ impl Emulator {
                     self.renderer.window().request_redraw();
                 }
                 _ => {}
-            });
+            }
+        });
     }
 
     fn load_font(memory: &mut [u8; 4096]) {
