@@ -1,5 +1,7 @@
 use winit::event::VirtualKeyCode;
 
+const FPS: f64 = 60.0;
+
 pub struct Emulator {
     pub renderer: crate::renderer::RendererState,
     pub event_loop: winit::event_loop::EventLoop<()>,
@@ -56,13 +58,41 @@ impl Emulator {
 
     pub async fn run(mut self) {
         env_logger::init();
-        self.event_loop.run(move |event, _, control_flow| {
-            // input
-            match event {
+        let mut i = 0;
+        let timer_length = std::time::Duration::new(0, (1_000_000_000.0 / FPS) as u32);
+        self.event_loop
+            .run(move |event, _, control_flow| match event {
+                // wait a frame on init
+                winit::event::Event::NewEvents(winit::event::StartCause::Init) => {
+                    control_flow.set_wait_until(std::time::Instant::now() + timer_length);
+                }
+                // wait a frame
+                winit::event::Event::NewEvents(winit::event::StartCause::ResumeTimeReached {
+                    ..
+                }) => {
+                    control_flow.set_wait_until(std::time::Instant::now() + timer_length);
+                }
+                // resizing window, closing window, user input
                 winit::event::Event::WindowEvent {
-                    ref event,
                     window_id,
+                    ref event,
                 } if window_id == self.renderer.window().id() => match event {
+                    winit::event::WindowEvent::CloseRequested
+                    | winit::event::WindowEvent::KeyboardInput {
+                        input:
+                            winit::event::KeyboardInput {
+                                state: winit::event::ElementState::Pressed,
+                                virtual_keycode: Some(VirtualKeyCode::Escape),
+                                ..
+                            },
+                        ..
+                    } => *control_flow = winit::event_loop::ControlFlow::Exit,
+                    winit::event::WindowEvent::Resized(physical_size) => {
+                        self.renderer.resize(*physical_size);
+                    }
+                    winit::event::WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
+                        self.renderer.resize(**new_inner_size);
+                    }
                     winit::event::WindowEvent::KeyboardInput {
                         input:
                             winit::event::KeyboardInput {
@@ -72,6 +102,9 @@ impl Emulator {
                             },
                         ..
                     } => match virtual_keycode {
+                        Some(winit::event::VirtualKeyCode::Escape) => {
+                            *control_flow = winit::event_loop::ControlFlow::Exit
+                        }
                         Some(keycode) if self.pressed.contains_key(keycode) => {
                             println!("{:?} was pressed", keycode);
                             *self.pressed.get_mut(keycode).unwrap() = true;
@@ -80,43 +113,7 @@ impl Emulator {
                     },
                     _ => {}
                 },
-                _ => {}
-            };
-
-            // fetch, decode, execute 12x a frame
-            for _ in 0..12 {}
-
-            // rendering
-            match event {
-                winit::event::Event::WindowEvent {
-                    window_id,
-                    ref event,
-                } if window_id == self.renderer.window().id() => {
-                    if !self.renderer.input(event) {
-                        match event {
-                            winit::event::WindowEvent::CloseRequested
-                            | winit::event::WindowEvent::KeyboardInput {
-                                input:
-                                    winit::event::KeyboardInput {
-                                        state: winit::event::ElementState::Pressed,
-                                        virtual_keycode: Some(winit::event::VirtualKeyCode::Escape),
-                                        ..
-                                    },
-                                ..
-                            } => *control_flow = winit::event_loop::ControlFlow::Exit,
-                            winit::event::WindowEvent::Resized(physical_size) => {
-                                self.renderer.resize(*physical_size);
-                            }
-                            winit::event::WindowEvent::ScaleFactorChanged {
-                                new_inner_size,
-                                ..
-                            } => {
-                                self.renderer.resize(**new_inner_size);
-                            }
-                            _ => {}
-                        }
-                    }
-                }
+                // explicit redraw request
                 winit::event::Event::RedrawRequested(window_id)
                     if window_id == self.renderer.window().id() =>
                 {
@@ -130,15 +127,24 @@ impl Emulator {
                         Err(e) => eprint!("{:?}", e),
                     }
                 }
+                // everything else - no input or waiting
                 winit::event::Event::MainEventsCleared => {
+                    // fetch, decode, execute 12x a frame
+                    for _ in 0..12 {}
+
+                    // timer test
+                    // TODO: remove
+                    i = i + 1;
+                    if i >= FPS as i32 {
+                        i = 0;
+                        println!("A second passed");
+                    }
+
+                    // render
                     self.renderer.window().request_redraw();
                 }
                 _ => {}
-            }
-            
-            // reset state
-            
-        });
+            })
     }
 
     fn load_font(memory: &mut [u8; 4096]) {
