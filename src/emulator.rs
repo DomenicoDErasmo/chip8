@@ -5,11 +5,12 @@ const FPS: f64 = 60.0;
 pub struct Emulator {
     pub renderer: crate::renderer::RendererState,
     pub event_loop: winit::event_loop::EventLoop<()>,
-    _memory: [u8; 4096],
+    memory: [u8; 4096],
     _stack: crate::stack::Stack,
     _delay_timer: crate::timer::Timer,
     _sound_timer: crate::timer::Timer,
     pressed: std::collections::HashMap<VirtualKeyCode, bool>,
+    program_counter: usize,
 }
 
 impl Emulator {
@@ -25,6 +26,8 @@ impl Emulator {
         let stack = crate::stack::Stack::new();
         let delay_timer = crate::timer::Timer::new();
         let sound_timer = crate::timer::Timer::new();
+
+        let program_counter = 0;
 
         let pressed = std::collections::HashMap::from([
             (VirtualKeyCode::Key1, false),
@@ -48,11 +51,12 @@ impl Emulator {
         Self {
             event_loop,
             renderer,
-            _memory: memory,
+            memory,
             _stack: stack,
             _delay_timer: delay_timer,
             _sound_timer: sound_timer,
             pressed,
+            program_counter,
         }
     }
 
@@ -129,8 +133,19 @@ impl Emulator {
                 }
                 // everything else - no input or waiting
                 winit::event::Event::MainEventsCleared => {
-                    // fetch, decode, execute 12x a frame
-                    for _ in 0..12 {}
+                    // 12x a frame -> 720 / instructions per second on 60 FPS
+                    for _ in 0..12 {
+                        // fetch
+                        let instruction_bytes: &[u8; 2] = &self.memory
+                            [self.program_counter..self.program_counter + 2]
+                            .try_into()
+                            .expect("Wrong length");
+
+                        // decode
+                        let _instruction = crate::bit_utils::append_number_bits(instruction_bytes);
+
+                        // execute
+                    }
 
                     // timer test
                     // TODO: remove

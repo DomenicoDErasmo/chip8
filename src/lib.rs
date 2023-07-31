@@ -1,3 +1,4 @@
+pub mod bit_utils;
 pub mod emulator;
 pub mod instance;
 pub mod renderer;
