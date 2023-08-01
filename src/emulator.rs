@@ -194,7 +194,7 @@ impl Emulator {
     fn parse_instruction(&mut self, instruction: u16) {
         let first_nibble = crate::bit_utils::bit_range_to_num(instruction, 0, 4).unwrap();
         let second_nibble = crate::bit_utils::bit_range_to_num(instruction, 4, 8).unwrap();
-        let _third_nibble = crate::bit_utils::bit_range_to_num(instruction, 8, 12).unwrap();
+        let third_nibble = crate::bit_utils::bit_range_to_num(instruction, 8, 12).unwrap();
         let fourth_nibble = crate::bit_utils::bit_range_to_num(instruction, 12, 16).unwrap();
         let nibbles_2_to_4 = crate::bit_utils::bit_range_to_num(instruction, 4, 16).unwrap();
         let nibbles_3_to_4 = crate::bit_utils::bit_range_to_num(instruction, 8, 16).unwrap();
@@ -222,10 +222,51 @@ impl Emulator {
             0xA => self.index_register = nibbles_3_to_4.into(),
             0xB => {}
             0xC => {}
-            0xD => {}
+            0xD => self.draw_to_screen(
+                second_nibble as usize,
+                third_nibble as usize,
+                fourth_nibble as usize,
+            ),
             0xE => {}
             0xF => {}
             _ => {}
+        }
+    }
+
+    fn draw_to_screen(&mut self, second_nibble: usize, third_nibble: usize, fourth_nibble: usize) {
+        let mut x_coord = (self.variable_registers[second_nibble] % 64) as usize;
+        let mut y_coord = (self.variable_registers[third_nibble] % 64) as usize;
+        let sprite_height = fourth_nibble;
+        self.variable_registers[15] = 0;
+        'outer: for n in 0..sprite_height {
+            let nth_byte_of_sprite = self.memory[self.index_register + n];
+            'inner: for bit_place in 0..8 {
+                let bit_value = crate::bit_utils::bit_range_to_num(
+                    nth_byte_of_sprite.into(),
+                    bit_place,
+                    bit_place + 1,
+                )
+                .unwrap();
+
+                if bit_value != 0 {
+                    let screen_pixel = &mut self.screen[x_coord][y_coord];
+                    if *screen_pixel {
+                        *screen_pixel = false;
+                        self.variable_registers[15] = 1;
+                    } else {
+                        *screen_pixel = true;
+                    }
+                }
+
+                x_coord = x_coord + 1;
+                if x_coord as u32 >= crate::screen::SCREEN_WIDTH {
+                    break 'inner;
+                }
+            }
+            y_coord = y_coord + 1;
+            if y_coord as u32 >= crate::screen::SCREEN_HEIGHT {
+                break 'outer;
+            }
         }
     }
 
