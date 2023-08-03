@@ -72,6 +72,13 @@ impl Emulator {
         let mut renderer = crate::renderer::RendererState::new(window).await;
         let mut i = 0;
         let timer_length = std::time::Duration::new(0, (1_000_000_000.0 / FPS) as u32);
+
+        let mut x: i32 = 0;
+        let mut y: i32 = 0;
+
+        let mut prev_x: i32 = 0;
+        let mut prev_y: i32 = 0;
+
         event_loop.run(move |event, _, control_flow| match event {
             // wait a frame on init
             winit::event::Event::NewEvents(winit::event::StartCause::Init) => {
@@ -119,6 +126,68 @@ impl Emulator {
                     Some(keycode) if self.pressed.contains_key(keycode) => {
                         println!("{:?} was pressed", keycode);
                         *self.pressed.get_mut(keycode).unwrap() = true;
+                        match keycode {
+                            VirtualKeyCode::W
+                            | VirtualKeyCode::A
+                            | VirtualKeyCode::S
+                            | VirtualKeyCode::D => {
+                                prev_x = x;
+                                prev_y = y;
+                                match keycode {
+                                    VirtualKeyCode::W => {
+                                        y = y + 1 % crate::screen::SCREEN_HEIGHT as i32
+                                    }
+                                    VirtualKeyCode::A => {
+                                        x = x - 1 % crate::screen::SCREEN_WIDTH as i32
+                                    }
+                                    VirtualKeyCode::S => {
+                                        y = y - 1 % crate::screen::SCREEN_HEIGHT as i32
+                                    }
+                                    VirtualKeyCode::D => {
+                                        x = x + 1 % crate::screen::SCREEN_WIDTH as i32
+                                    }
+                                    _ => {}
+                                };
+                                renderer.instances
+                                    [(y * crate::screen::SCREEN_WIDTH as i32 + x) as usize]
+                                    .color = cgmath::Vector4 {
+                                    x: 1.0,
+                                    y: 1.0,
+                                    z: 0.0,
+                                    w: 0.0,
+                                };
+                                println!(
+                                    "prev coords: {prev_y}, {prev_x}, z: {}",
+                                    renderer.instances[(prev_y * crate::screen::SCREEN_WIDTH as i32
+                                        + prev_x)
+                                        as usize]
+                                        .color
+                                        .z
+                                );
+                                let new_color = if renderer.instances[(prev_y
+                                    * crate::screen::SCREEN_WIDTH as i32
+                                    + prev_x)
+                                    as usize]
+                                    .color
+                                    .z
+                                    > 0.0
+                                {
+                                    0.0
+                                } else {
+                                    1.0
+                                };
+                                renderer.instances[(prev_y * crate::screen::SCREEN_WIDTH as i32
+                                    + prev_x)
+                                    as usize]
+                                    .color = cgmath::Vector4 {
+                                    x: new_color,
+                                    y: new_color,
+                                    z: new_color,
+                                    w: 0.0,
+                                }
+                            }
+                            _ => {}
+                        }
                     }
                     _ => {}
                 },
@@ -150,7 +219,7 @@ impl Emulator {
 
                     // decode
                     let instruction = crate::bit_utils::append_number_bits(instruction_bytes);
-                    self.parse_instruction(instruction);
+                    self.parse_instruction(instruction, &mut renderer);
                     // execute
                 }
 
@@ -191,7 +260,11 @@ impl Emulator {
         memory[0x50..0xA0].clone_from_slice(font);
     }
 
-    fn parse_instruction(&mut self, instruction: u16) {
+    fn parse_instruction(
+        &mut self,
+        instruction: u16,
+        renderer: &mut crate::renderer::RendererState,
+    ) {
         let first_nibble = crate::bit_utils::bit_range_to_num(instruction, 0, 4).unwrap();
         let second_nibble = crate::bit_utils::bit_range_to_num(instruction, 4, 8).unwrap();
         let third_nibble = crate::bit_utils::bit_range_to_num(instruction, 8, 12).unwrap();
@@ -226,6 +299,7 @@ impl Emulator {
                 second_nibble as usize,
                 third_nibble as usize,
                 fourth_nibble as usize,
+                renderer,
             ),
             0xE => {}
             0xF => {}
@@ -233,41 +307,14 @@ impl Emulator {
         }
     }
 
-    fn draw_to_screen(&mut self, second_nibble: usize, third_nibble: usize, fourth_nibble: usize) {
-        let mut x_coord = (self.variable_registers[second_nibble] % 64) as usize;
-        let mut y_coord = (self.variable_registers[third_nibble] % 64) as usize;
-        let sprite_height = fourth_nibble;
-        self.variable_registers[15] = 0;
-        'outer: for n in 0..sprite_height {
-            let nth_byte_of_sprite = self.memory[self.index_register + n];
-            'inner: for bit_place in 0..8 {
-                let bit_value = crate::bit_utils::bit_range_to_num(
-                    nth_byte_of_sprite.into(),
-                    bit_place,
-                    bit_place + 1,
-                )
-                .unwrap();
-
-                if bit_value != 0 {
-                    let screen_pixel = &mut self.screen[x_coord][y_coord];
-                    if *screen_pixel {
-                        *screen_pixel = false;
-                        self.variable_registers[15] = 1;
-                    } else {
-                        *screen_pixel = true;
-                    }
-                }
-
-                x_coord = x_coord + 1;
-                if x_coord as u32 >= crate::screen::SCREEN_WIDTH {
-                    break 'inner;
-                }
-            }
-            y_coord = y_coord + 1;
-            if y_coord as u32 >= crate::screen::SCREEN_HEIGHT {
-                break 'outer;
-            }
-        }
+    fn draw_to_screen(
+        &mut self,
+        _second_nibble: usize,
+        _third_nibble: usize,
+        _fourth_nibble: usize,
+        renderer: &mut crate::renderer::RendererState,
+    ) {
+        (*renderer).update();
     }
 
     fn clear_screen(&mut self) {

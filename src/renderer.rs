@@ -12,7 +12,7 @@ pub struct RendererState {
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
     num_indices: u32,
-    instances: Vec<crate::instance::Instance>,
+    pub instances: Vec<crate::instance::Instance>,
     instance_buffer: wgpu::Buffer,
 }
 
@@ -137,7 +137,6 @@ impl RendererState {
         let num_indices = unit_pixel.indices.len() as u32;
 
         // instances are 0-indexed from the bottom-left going top-right
-        // TODO: make mut when ready to change colors on screen
         let instances = (0..crate::screen::SCREEN_HEIGHT)
             .flat_map(|y| {
                 (0..crate::screen::SCREEN_WIDTH).map(move |x| {
@@ -215,7 +214,20 @@ impl RendererState {
         false
     }
 
-    pub fn update(&mut self) {}
+    pub fn update(&mut self) {
+        let instance_data = self
+            .instances
+            .iter()
+            .map(crate::instance::Instance::to_raw)
+            .collect::<Vec<_>>();
+        self.instance_buffer = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Instance Buffer"),
+                contents: bytemuck::cast_slice(&instance_data),
+                usage: wgpu::BufferUsages::VERTEX,
+            });
+    }
 
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
         let output = self.surface.get_current_texture()?;
