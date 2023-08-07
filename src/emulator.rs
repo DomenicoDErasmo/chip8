@@ -15,8 +15,8 @@ pub struct Emulator {
 }
 
 impl Emulator {
-    pub async fn new() -> Self {
-        let mut memory = [0x00; 4096];
+    pub async fn new(file_path: &str) -> Self {
+        let mut memory = Self::load_memory_from_rom(file_path);
         Self::load_font(&mut memory);
 
         let stack = crate::stack::Stack::new();
@@ -76,8 +76,8 @@ impl Emulator {
         let mut x: i32 = 0;
         let mut y: i32 = 0;
 
-        let mut prev_x: i32 = 0;
-        let mut prev_y: i32 = 0;
+        let mut _prev_x: i32 = 0;
+        let mut _prev_y: i32 = 0;
 
         event_loop.run(move |event, _, control_flow| match event {
             // wait a frame on init
@@ -126,13 +126,14 @@ impl Emulator {
                     Some(keycode) if self.pressed.contains_key(keycode) => {
                         println!("{:?} was pressed", keycode);
                         *self.pressed.get_mut(keycode).unwrap() = true;
+                        // Just for testing TODO: remove
                         match keycode {
                             VirtualKeyCode::W
                             | VirtualKeyCode::A
                             | VirtualKeyCode::S
                             | VirtualKeyCode::D => {
-                                prev_x = x;
-                                prev_y = y;
+                                _prev_x = x;
+                                _prev_y = y;
                                 match keycode {
                                     VirtualKeyCode::W => {
                                         y = y + 1 % crate::screen::SCREEN_HEIGHT as i32
@@ -157,16 +158,17 @@ impl Emulator {
                                     w: 0.0,
                                 };
                                 println!(
-                                    "prev coords: {prev_y}, {prev_x}, z: {}",
-                                    renderer.instances[(prev_y * crate::screen::SCREEN_WIDTH as i32
-                                        + prev_x)
+                                    "prev coords: {_prev_y}, {_prev_x}, z: {}",
+                                    renderer.instances[(_prev_y
+                                        * crate::screen::SCREEN_WIDTH as i32
+                                        + _prev_x)
                                         as usize]
                                         .color
                                         .z
                                 );
-                                let new_color = if renderer.instances[(prev_y
+                                let new_color = if renderer.instances[(_prev_y
                                     * crate::screen::SCREEN_WIDTH as i32
-                                    + prev_x)
+                                    + _prev_x)
                                     as usize]
                                     .color
                                     .z
@@ -176,8 +178,8 @@ impl Emulator {
                                 } else {
                                     1.0
                                 };
-                                renderer.instances[(prev_y * crate::screen::SCREEN_WIDTH as i32
-                                    + prev_x)
+                                renderer.instances[(_prev_y * crate::screen::SCREEN_WIDTH as i32
+                                    + _prev_x)
                                     as usize]
                                     .color = cgmath::Vector4 {
                                     x: new_color,
@@ -309,12 +311,51 @@ impl Emulator {
 
     fn draw_to_screen(
         &mut self,
-        _second_nibble: usize,
-        _third_nibble: usize,
-        _fourth_nibble: usize,
+        second_nibble: usize,
+        third_nibble: usize,
+        fourth_nibble: usize,
         renderer: &mut crate::renderer::RendererState,
     ) {
-        (*renderer).update();
+        let mut x = self.variable_registers[second_nibble] % 64;
+        let mut y = self.variable_registers[third_nibble] % 64;
+
+        self.variable_registers[15] = 0;
+
+        'outer: for i in 0..fourth_nibble {
+            let ith_byte = self.memory[self.index_register + i];
+            'inner: for bit_value in 0..8 {
+                let bit =
+                    crate::bit_utils::bit_range_to_num(ith_byte as u16, bit_value, bit_value + 1)
+                        .unwrap();
+                let pixel = &mut renderer.instances
+                    [(y as u32 * crate::screen::SCREEN_WIDTH + x as u32) as usize];
+                if pixel.color.x == 0.0 {
+                    if bit == 0 {
+                        pixel.color = cgmath::Vector4 {
+                            x: 1.0,
+                            y: 1.0,
+                            z: 1.0,
+                            w: 0.0,
+                        };
+                    } else {
+                        pixel.color = cgmath::Vector4 {
+                            x: 0.0,
+                            y: 0.0,
+                            z: 0.0,
+                            w: 0.0,
+                        }
+                    }
+                }
+                x = x + 1;
+                if x >= crate::screen::PIXEL_WIDTH as u8 {
+                    break 'inner;
+                }
+            }
+            y = y + 1;
+            if y >= crate::screen::PIXEL_HEIGHT as u8 {
+                break 'outer;
+            }
+        }
     }
 
     fn clear_screen(&mut self) {
@@ -323,5 +364,13 @@ impl Emulator {
                 *cell = false;
             }
         }
+    }
+
+    fn load_memory_from_rom(file_path: &str) -> [u8; 4096] {
+        let mut memory = [0; 4096];
+
+        let rom_contents = include_bytes!("../roms/IBM Logo.ch8");
+
+        memory
     }
 }
