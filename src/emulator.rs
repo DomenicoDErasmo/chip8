@@ -23,7 +23,7 @@ impl Emulator {
         let delay_timer = crate::timer::Timer::new();
         let sound_timer = crate::timer::Timer::new();
 
-        let program_counter = 0;
+        let program_counter = 0x200;
         let index_register = 0;
 
         let pressed = std::collections::HashMap::from([
@@ -70,7 +70,6 @@ impl Emulator {
             .build(&event_loop)
             .unwrap();
         let mut renderer = crate::renderer::RendererState::new(window).await;
-        let mut i = 0;
         let timer_length = std::time::Duration::new(0, (1_000_000_000.0 / FPS) as u32);
 
         let mut x: i32 = 0;
@@ -219,18 +218,17 @@ impl Emulator {
                         .try_into()
                         .expect("Wrong length");
 
+                    // increment program counter for next instruction
+                    self.program_counter = self.program_counter + 2;
+                    println!("program_counter: {:#?}", self.program_counter);
+
+                    println!("instruction_bytes: {instruction_bytes:#?}");
+
                     // decode
                     let instruction = crate::bit_utils::append_number_bits(instruction_bytes);
+                    println!("instruction: {instruction:#?}");
                     self.parse_instruction(instruction, &mut renderer);
                     // execute
-                }
-
-                // timer test
-                // TODO: remove
-                i = i + 1;
-                if i >= FPS as i32 {
-                    i = 0;
-                    println!("A second passed");
                 }
 
                 // render
@@ -294,7 +292,7 @@ impl Emulator {
             }
             0x8 => {}
             0x9 => {}
-            0xA => self.index_register = nibbles_3_to_4.into(),
+            0xA => self.index_register = nibbles_2_to_4.into(),
             0xB => {}
             0xC => {}
             0xD => self.draw_to_screen(
@@ -369,7 +367,10 @@ impl Emulator {
     fn load_memory_from_rom(file_path: &str) -> [u8; 4096] {
         let mut memory = [0; 4096];
 
-        let rom_contents = include_bytes!("../roms/IBM Logo.ch8");
+        let rom_contents = std::fs::read(file_path).unwrap();
+        for (i, instruction) in rom_contents.iter().enumerate() {
+            memory[0x200 + i] = *instruction;
+        }
 
         memory
     }
