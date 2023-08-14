@@ -11,12 +11,14 @@ pub struct Emulator {
     program_counter: usize,
     index_register: usize,
     variable_registers: [u8; 16],
-    screen: [[bool; crate::screen::SCREEN_WIDTH as usize]; crate::screen::SCREEN_HEIGHT as usize],
 }
 
 impl Emulator {
-    pub async fn new(file_path: &str) -> Self {
-        let mut memory = Self::load_memory_from_rom(file_path);
+    pub async fn new(file_path: Option<&str>) -> Self {
+        let mut memory = match file_path {
+            Some(path) => Self::load_memory_from_rom(path),
+            None => [0; 4096],
+        };
         Self::load_font(&mut memory);
 
         let stack = crate::stack::Stack::new();
@@ -47,9 +49,6 @@ impl Emulator {
 
         let variable_registers = [0; 16];
 
-        let screen =
-            [[false; crate::screen::SCREEN_WIDTH as usize]; crate::screen::SCREEN_HEIGHT as usize];
-
         Self {
             memory,
             _stack: stack,
@@ -59,7 +58,6 @@ impl Emulator {
             program_counter,
             index_register,
             variable_registers,
-            screen,
         }
     }
 
@@ -70,6 +68,13 @@ impl Emulator {
             .build(&event_loop)
             .unwrap();
         let mut renderer = crate::renderer::RendererState::new(window).await;
+        renderer.instances[(9 * crate::screen::SCREEN_WIDTH + 12) as usize].color =
+            cgmath::Vector4 {
+                x: 0.5,
+                y: 0.5,
+                z: 0.5,
+                w: 0.0,
+            };
         let timer_length = std::time::Duration::new(0, (1_000_000_000.0 / FPS) as u32);
 
         let mut x: i32 = 0;
@@ -276,7 +281,7 @@ impl Emulator {
 
         match first_nibble {
             0x0 => match fourth_nibble {
-                0x0 => self.clear_screen(),
+                0x0 => clear_screen(renderer),
                 0xE => {}
                 _ => {}
             },
@@ -326,8 +331,8 @@ impl Emulator {
                 let sprite_bit =
                     crate::bit_utils::bit_range_to_num(ith_byte as u16, bit_value, bit_value + 1)
                         .unwrap();
-                let pixel = &mut renderer.instances
-                    [(y as u32 * crate::screen::SCREEN_WIDTH + x as u32) as usize];
+                let pixel_index = (y as u32 * crate::screen::SCREEN_WIDTH + x as u32) as usize;
+                let pixel = &mut renderer.instances[pixel_index];
 
                 if sprite_bit == 1 {
                     if pixel.color.x > 0.1 {
@@ -343,18 +348,18 @@ impl Emulator {
                             x: 1.0,
                             y: 1.0,
                             z: 1.0,
-                            w: 1.0,
+                            w: 0.0,
                         };
                     }
                 }
 
                 x = x + 1;
-                if x >= crate::screen::PIXEL_WIDTH as u8 {
+                if x >= crate::screen::SCREEN_WIDTH as u8 {
                     break 'inner;
                 }
             }
             y = y + 1;
-            if y >= crate::screen::PIXEL_HEIGHT as u8 {
+            if y >= crate::screen::SCREEN_HEIGHT as u8 {
                 break 'outer;
             }
         }
@@ -374,14 +379,6 @@ impl Emulator {
         self.index_register = address;
     }
 
-    fn clear_screen(&mut self) {
-        for row in self.screen.iter_mut() {
-            for cell in row.iter_mut() {
-                *cell = false;
-            }
-        }
-    }
-
     fn load_memory_from_rom(file_path: &str) -> [u8; 4096] {
         let mut memory = [0; 4096];
 
@@ -394,23 +391,34 @@ impl Emulator {
     }
 }
 
+fn clear_screen(renderer: &mut crate::renderer::RendererState) {
+    for instance in renderer.instances.iter_mut() {
+        instance.color = cgmath::Vector4 {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+            w: 0.0,
+        };
+    }
+}
+
 #[tokio::test]
 async fn test_jump() {
-    let mut emulator = Emulator::new("./roms/IBM Logo.ch8").await;
+    let mut emulator = Emulator::new(None).await;
     emulator.jump(0x210);
     assert_eq!(emulator.program_counter, 0x210);
 }
 
 #[tokio::test]
 async fn test_set_register() {
-    let mut emulator = Emulator::new("./roms/IBM Logo.ch8").await;
+    let mut emulator = Emulator::new(None).await;
     emulator.set_register(12, 41);
     assert_eq!(emulator.variable_registers[12], 41);
 }
 
 #[tokio::test]
 async fn test_add_to_register() {
-    let mut emulator = Emulator::new("./roms/IBM Logo.ch8").await;
+    let mut emulator = Emulator::new(None).await;
     emulator.add_to_register(11, 15);
     assert_eq!(emulator.variable_registers[11], 15);
     emulator.add_to_register(11, 215);
@@ -419,7 +427,7 @@ async fn test_add_to_register() {
 
 #[tokio::test]
 async fn test_set_index_register() {
-    let mut emulator = Emulator::new("./roms/IBM Logo.ch8").await;
+    let mut emulator = Emulator::new(None).await;
     emulator.set_index_register(1411);
     assert_eq!(emulator.index_register, 1411);
 }
