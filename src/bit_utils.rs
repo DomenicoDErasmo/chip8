@@ -6,6 +6,9 @@ pub fn append_number_bits(nums: &[u8; 2]) -> u16 {
 }
 
 pub fn bit_range_to_num(num: u16, start: usize, end: usize) -> Option<u16> {
+    // Creates a number from a range of bits of another number
+    // start refers to the least significant digit (i.e. right to left)
+    // end refers to the most significant digit, not including it
     if (start > end) | (start >= 16) | (end > 16) {
         return None;
     }

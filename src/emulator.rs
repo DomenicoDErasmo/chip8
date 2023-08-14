@@ -225,9 +225,7 @@ impl Emulator {
                     println!("instruction_bytes: {instruction_bytes:#?}");
 
                     // decode
-                    let instruction = crate::bit_utils::append_number_bits(instruction_bytes);
-                    println!("instruction: {instruction:#?}");
-                    self.parse_instruction(instruction, &mut renderer);
+                    self.parse_instruction(instruction_bytes, &mut renderer);
                     // execute
                 }
 
@@ -262,15 +260,19 @@ impl Emulator {
 
     fn parse_instruction(
         &mut self,
-        instruction: u16,
+        instruction: &[u8; 2],
         renderer: &mut crate::renderer::RendererState,
     ) {
-        let first_nibble = crate::bit_utils::bit_range_to_num(instruction, 0, 4).unwrap();
-        let second_nibble = crate::bit_utils::bit_range_to_num(instruction, 4, 8).unwrap();
-        let third_nibble = crate::bit_utils::bit_range_to_num(instruction, 8, 12).unwrap();
-        let fourth_nibble = crate::bit_utils::bit_range_to_num(instruction, 12, 16).unwrap();
-        let nibbles_2_to_4 = crate::bit_utils::bit_range_to_num(instruction, 4, 16).unwrap();
-        let nibbles_3_to_4 = crate::bit_utils::bit_range_to_num(instruction, 8, 16).unwrap();
+        let first_nibble = crate::bit_utils::bit_range_to_num(instruction[0].into(), 4, 8).unwrap();
+        let second_nibble =
+            crate::bit_utils::bit_range_to_num(instruction[0].into(), 0, 4).unwrap();
+        let third_nibble = crate::bit_utils::bit_range_to_num(instruction[1].into(), 4, 8).unwrap();
+        let fourth_nibble =
+            crate::bit_utils::bit_range_to_num(instruction[1].into(), 0, 4).unwrap();
+        let nibbles_3_to_4 =
+            crate::bit_utils::bit_range_to_num(instruction[1].into(), 0, 8).unwrap();
+        let nibbles_2_to_4 =
+            crate::bit_utils::append_number_bits(&[second_nibble as u8, nibbles_3_to_4 as u8]);
 
         match first_nibble {
             0x0 => match fourth_nibble {
@@ -278,21 +280,16 @@ impl Emulator {
                 0xE => {}
                 _ => {}
             },
-            0x1 => self.program_counter = nibbles_2_to_4.into(),
+            0x1 => self.jump(nibbles_2_to_4.into()),
             0x2 => {}
             0x3 => {}
             0x4 => {}
             0x5 => {}
-            0x6 => self.variable_registers[second_nibble as usize] = nibbles_3_to_4 as u8,
-            0x7 => {
-                // normally we would check if <= 255 but Rust does this for us
-                let register_to_change = &mut self.variable_registers[second_nibble as usize];
-                let candidate_sum = *register_to_change + (nibbles_3_to_4 as u8);
-                *register_to_change = candidate_sum;
-            }
+            0x6 => self.set_register(second_nibble as usize, nibbles_3_to_4 as u8),
+            0x7 => self.add_to_register(second_nibble as usize, nibbles_3_to_4 as u8),
             0x8 => {}
             0x9 => {}
-            0xA => self.index_register = nibbles_2_to_4.into(),
+            0xA => self.set_index_register(nibbles_2_to_4.into()),
             0xB => {}
             0xC => {}
             0xD => self.draw_to_screen(
@@ -307,6 +304,10 @@ impl Emulator {
         }
     }
 
+    fn jump(&mut self, location: usize) {
+        self.program_counter = location;
+    }
+
     fn draw_to_screen(
         &mut self,
         second_nibble: usize,
@@ -315,35 +316,38 @@ impl Emulator {
         renderer: &mut crate::renderer::RendererState,
     ) {
         let mut x = self.variable_registers[second_nibble] % 64;
-        let mut y = self.variable_registers[third_nibble] % 64;
+        let mut y = self.variable_registers[third_nibble] % 32;
 
         self.variable_registers[15] = 0;
 
         'outer: for i in 0..fourth_nibble {
             let ith_byte = self.memory[self.index_register + i];
             'inner: for bit_value in 0..8 {
-                let bit =
+                let sprite_bit =
                     crate::bit_utils::bit_range_to_num(ith_byte as u16, bit_value, bit_value + 1)
                         .unwrap();
                 let pixel = &mut renderer.instances
                     [(y as u32 * crate::screen::SCREEN_WIDTH + x as u32) as usize];
-                if pixel.color.x == 0.0 {
-                    if bit == 0 {
-                        pixel.color = cgmath::Vector4 {
-                            x: 1.0,
-                            y: 1.0,
-                            z: 1.0,
-                            w: 0.0,
-                        };
-                    } else {
+
+                if sprite_bit == 1 {
+                    if pixel.color.x > 0.1 {
                         pixel.color = cgmath::Vector4 {
                             x: 0.0,
                             y: 0.0,
                             z: 0.0,
                             w: 0.0,
-                        }
+                        };
+                        self.variable_registers[15] = 1;
+                    } else {
+                        pixel.color = cgmath::Vector4 {
+                            x: 1.0,
+                            y: 1.0,
+                            z: 1.0,
+                            w: 1.0,
+                        };
                     }
                 }
+
                 x = x + 1;
                 if x >= crate::screen::PIXEL_WIDTH as u8 {
                     break 'inner;
@@ -354,6 +358,20 @@ impl Emulator {
                 break 'outer;
             }
         }
+    }
+
+    fn set_register(&mut self, register: usize, value: u8) {
+        self.variable_registers[register] = value;
+    }
+
+    fn add_to_register(&mut self, register: usize, addend: u8) {
+        let register_to_change = &mut self.variable_registers[register];
+        let sum = *register_to_change + addend;
+        *register_to_change = sum;
+    }
+
+    fn set_index_register(&mut self, address: usize) {
+        self.index_register = address;
     }
 
     fn clear_screen(&mut self) {
@@ -374,4 +392,34 @@ impl Emulator {
 
         memory
     }
+}
+
+#[tokio::test]
+async fn test_jump() {
+    let mut emulator = Emulator::new("./roms/IBM Logo.ch8").await;
+    emulator.jump(0x210);
+    assert_eq!(emulator.program_counter, 0x210);
+}
+
+#[tokio::test]
+async fn test_set_register() {
+    let mut emulator = Emulator::new("./roms/IBM Logo.ch8").await;
+    emulator.set_register(12, 41);
+    assert_eq!(emulator.variable_registers[12], 41);
+}
+
+#[tokio::test]
+async fn test_add_to_register() {
+    let mut emulator = Emulator::new("./roms/IBM Logo.ch8").await;
+    emulator.add_to_register(11, 15);
+    assert_eq!(emulator.variable_registers[11], 15);
+    emulator.add_to_register(11, 215);
+    assert_eq!(emulator.variable_registers[11], 230);
+}
+
+#[tokio::test]
+async fn test_set_index_register() {
+    let mut emulator = Emulator::new("./roms/IBM Logo.ch8").await;
+    emulator.set_index_register(1411);
+    assert_eq!(emulator.index_register, 1411);
 }
