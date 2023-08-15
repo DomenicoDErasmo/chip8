@@ -320,18 +320,20 @@ impl Emulator {
         fourth_nibble: usize,
         renderer: &mut crate::renderer::RendererState,
     ) {
-        let mut x = self.variable_registers[second_nibble] % 64;
         let mut y = self.variable_registers[third_nibble] % 32;
 
         self.variable_registers[15] = 0;
 
         'outer: for i in 0..fourth_nibble {
             let ith_byte = self.memory[self.index_register + i];
+            let mut x = self.variable_registers[second_nibble] % 64;
             'inner: for bit_value in 0..8 {
                 let sprite_bit =
                     crate::bit_utils::bit_range_to_num(ith_byte as u16, bit_value, bit_value + 1)
                         .unwrap();
-                let pixel_index = (y as u32 * crate::screen::SCREEN_WIDTH + x as u32) as usize;
+                let pixel_index = ((crate::screen::SCREEN_HEIGHT - y as u32)
+                    * crate::screen::SCREEN_WIDTH
+                    + x as u32) as usize;
                 let pixel = &mut renderer.instances[pixel_index];
 
                 if sprite_bit == 1 {
