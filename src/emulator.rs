@@ -294,19 +294,46 @@ impl Emulator {
             0x5 => self.skip_if_registers_equal(second_nibble.into(), third_nibble.into()),
             0x6 => self.set_register(second_nibble as usize, nibbles_3_to_4 as u8),
             0x7 => self.add_to_register(second_nibble as usize, nibbles_3_to_4 as u8),
-            0x8 => {}
+            0x8 => match fourth_nibble {
+                0x0 => todo!(),
+                0x1 => todo!(),
+                0x2 => todo!(),
+                0x3 => todo!(),
+                0x4 => todo!(),
+                0x5 => todo!(),
+                0x6 => todo!(),
+                0x7 => todo!(),
+                0x8 => todo!(),
+                0xE => todo!(),
+                _ => {}
+            },
             0x9 => self.skip_if_registers_not_equal(second_nibble.into(), third_nibble.into()),
             0xA => self.set_index_register(nibbles_2_to_4.into()),
-            0xB => {}
-            0xC => {}
+            0xB => todo!(),
+            0xC => todo!(),
             0xD => self.draw_to_screen(
                 second_nibble as usize,
                 third_nibble as usize,
                 fourth_nibble as usize,
                 renderer,
             ),
-            0xE => {}
-            0xF => {}
+            0xE => match nibbles_3_to_4 {
+                0x9E => todo!(),
+                0xA1 => todo!(),
+                _ => {}
+            },
+            0xF => match nibbles_3_to_4 {
+                0x07 => todo!(),
+                0x15 => todo!(),
+                0x18 => todo!(),
+                0x1E => todo!(),
+                0x0A => todo!(),
+                0x29 => todo!(),
+                0x33 => todo!(),
+                0x55 => todo!(),
+                0x65 => todo!(),
+                _ => {}
+            },
             _ => {}
         }
     }
