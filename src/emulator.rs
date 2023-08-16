@@ -4,7 +4,7 @@ const FPS: f64 = 60.0;
 
 pub struct Emulator {
     memory: [u8; 4096],
-    _stack: crate::stack::Stack,
+    stack: crate::stack::Stack,
     _delay_timer: crate::timer::Timer,
     _sound_timer: crate::timer::Timer,
     pressed: std::collections::HashMap<VirtualKeyCode, bool>,
@@ -51,7 +51,7 @@ impl Emulator {
 
         Self {
             memory,
-            _stack: stack,
+            stack,
             _delay_timer: delay_timer,
             _sound_timer: sound_timer,
             pressed,
@@ -282,18 +282,20 @@ impl Emulator {
         match first_nibble {
             0x0 => match fourth_nibble {
                 0x0 => clear_screen(renderer),
-                0xE => {}
+                0xE => self.stack_return(),
                 _ => {}
             },
             0x1 => self.jump(nibbles_2_to_4.into()),
-            0x2 => {}
-            0x3 => {}
-            0x4 => {}
-            0x5 => {}
+            0x2 => self.call_subroutine(nibbles_2_to_4.into()),
+            0x3 => self.skip_if_register_equals_value(second_nibble.into(), nibbles_3_to_4 as u8),
+            0x4 => {
+                self.skip_if_register_not_equal_to_value(second_nibble.into(), nibbles_3_to_4 as u8)
+            }
+            0x5 => self.skip_if_registers_equal(second_nibble.into(), third_nibble.into()),
             0x6 => self.set_register(second_nibble as usize, nibbles_3_to_4 as u8),
             0x7 => self.add_to_register(second_nibble as usize, nibbles_3_to_4 as u8),
             0x8 => {}
-            0x9 => {}
+            0x9 => self.skip_if_registers_not_equal(second_nibble.into(), third_nibble.into()),
             0xA => self.set_index_register(nibbles_2_to_4.into()),
             0xB => {}
             0xC => {}
@@ -329,10 +331,13 @@ impl Emulator {
             let mut x = self.variable_registers[second_nibble] % 64;
             'inner: for bit_value in 0..8 {
                 // we subtract bit_value from 8 because bit_range_to_num works from right to left, so we need to flip it
-                let sprite_bit =
-                    crate::bit_utils::bit_range_to_num(ith_byte as u16, 8 - bit_value - 1, 8 - bit_value)
-                        .unwrap();
-                // we subtract y from SCREEN_HEIGHT because the pixels are indexed from bottom-left to top-right, so we flip vertically 
+                let sprite_bit = crate::bit_utils::bit_range_to_num(
+                    ith_byte as u16,
+                    8 - bit_value - 1,
+                    8 - bit_value,
+                )
+                .unwrap();
+                // we subtract y from SCREEN_HEIGHT because the pixels are indexed from bottom-left to top-right, so we flip vertically
                 let pixel_index = ((crate::screen::SCREEN_HEIGHT - y as u32)
                     * crate::screen::SCREEN_WIDTH
                     + x as u32) as usize;
@@ -393,6 +398,40 @@ impl Emulator {
 
         memory
     }
+
+    fn stack_return(&mut self) {
+        self.program_counter = *self.stack.top().unwrap() as usize;
+        self.stack.pop();
+    }
+
+    fn call_subroutine(&mut self, address: usize) {
+        self.stack.push(self.program_counter);
+        self.program_counter = address;
+    }
+
+    fn skip_if_register_equals_value(&mut self, register: usize, value: u8) {
+        if self.variable_registers[register] == value {
+            self.program_counter = self.program_counter + 2;
+        }
+    }
+
+    fn skip_if_register_not_equal_to_value(&mut self, register: usize, value: u8) {
+        if self.variable_registers[register] != value {
+            self.program_counter = self.program_counter + 2;
+        }
+    }
+
+    fn skip_if_registers_equal(&mut self, register_x: usize, register_y: usize) {
+        if self.variable_registers[register_x] == self.variable_registers[register_y] {
+            self.program_counter = self.program_counter + 2;
+        }
+    }
+
+    fn skip_if_registers_not_equal(&mut self, register_x: usize, register_y: usize) {
+        if self.variable_registers[register_x] != self.variable_registers[register_y] {
+            self.program_counter = self.program_counter + 2;
+        }
+    }
 }
 
 fn clear_screen(renderer: &mut crate::renderer::RendererState) {
@@ -434,4 +473,71 @@ async fn test_set_index_register() {
     let mut emulator = Emulator::new(None).await;
     emulator.set_index_register(1411);
     assert_eq!(emulator.index_register, 1411);
+}
+
+#[tokio::test]
+async fn test_stack_return() {
+    let mut emulator = Emulator::new(None).await;
+    emulator.stack.push(100);
+    emulator.stack.push(200);
+    emulator.stack_return();
+    assert_eq!(emulator.program_counter, 200);
+    assert_eq!(*emulator.stack.top().unwrap(), 100);
+}
+
+#[tokio::test]
+async fn test_call_subroutine() {
+    let mut emulator = Emulator::new(None).await;
+    emulator.program_counter = 200;
+    emulator.call_subroutine(400);
+    assert_eq!(*emulator.stack.top().unwrap(), 200);
+    assert_eq!(emulator.program_counter, 400);
+}
+
+#[tokio::test]
+async fn test_skip_if_register_equals_value() {
+    let mut emulator = Emulator::new(None).await;
+    emulator.program_counter = 200;
+    emulator.variable_registers[0] = 1;
+    emulator.skip_if_register_equals_value(0, 1);
+    assert_eq!(emulator.program_counter, 202);
+    emulator.skip_if_register_equals_value(0, 2);
+    assert_eq!(emulator.program_counter, 202);
+}
+
+#[tokio::test]
+async fn test_skip_if_register_not_equal_to_value() {
+    let mut emulator = Emulator::new(None).await;
+    emulator.program_counter = 200;
+    emulator.variable_registers[0] = 1;
+    emulator.skip_if_register_not_equal_to_value(0, 2);
+    assert_eq!(emulator.program_counter, 202);
+    emulator.skip_if_register_not_equal_to_value(0, 1);
+    assert_eq!(emulator.program_counter, 202);
+}
+
+#[tokio::test]
+async fn test_skip_if_registers_equal() {
+    let mut emulator = Emulator::new(None).await;
+    emulator.program_counter = 200;
+    emulator.variable_registers[0] = 1;
+    emulator.variable_registers[1] = 1;
+    emulator.skip_if_registers_equal(0, 1);
+    assert_eq!(emulator.program_counter, 202);
+    emulator.variable_registers[0] = 2;
+    emulator.skip_if_registers_equal(0, 1);
+    assert_eq!(emulator.program_counter, 202);
+}
+
+#[tokio::test]
+async fn test_skip_if_registers_not_equal() {
+    let mut emulator = Emulator::new(None).await;
+    emulator.program_counter = 200;
+    emulator.variable_registers[0] = 1;
+    emulator.variable_registers[1] = 2;
+    emulator.skip_if_registers_not_equal(0, 1);
+    assert_eq!(emulator.program_counter, 202);
+    emulator.variable_registers[0] = 2;
+    emulator.skip_if_registers_not_equal(0, 1);
+    assert_eq!(emulator.program_counter, 202);
 }
