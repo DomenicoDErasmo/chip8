@@ -10,7 +10,7 @@ pub struct Emulator {
     pressed: std::collections::HashMap<VirtualKeyCode, bool>,
     program_counter: usize,
     index_register: usize,
-    variable_registers: [u8; 16],
+    registers: [u8; 16],
 }
 
 impl Emulator {
@@ -57,7 +57,7 @@ impl Emulator {
             pressed,
             program_counter,
             index_register,
-            variable_registers,
+            registers: variable_registers,
         }
     }
 
@@ -295,11 +295,11 @@ impl Emulator {
             0x6 => self.set_register(second_nibble as usize, nibbles_3_to_4 as u8),
             0x7 => self.add_to_register(second_nibble as usize, nibbles_3_to_4 as u8),
             0x8 => match fourth_nibble {
-                0x0 => todo!(),
-                0x1 => todo!(),
-                0x2 => todo!(),
-                0x3 => todo!(),
-                0x4 => todo!(),
+                0x0 => self.set_register_to_other(second_nibble.into(), third_nibble.into()),
+                0x1 => self.binary_or(second_nibble.into(), third_nibble.into()),
+                0x2 => self.binary_and(second_nibble.into(), third_nibble.into()),
+                0x3 => self.binary_xor(second_nibble.into(), third_nibble.into()),
+                0x4 => self.add_registers(second_nibble.into(), third_nibble.into()),
                 0x5 => todo!(),
                 0x6 => todo!(),
                 0x7 => todo!(),
@@ -349,13 +349,13 @@ impl Emulator {
         fourth_nibble: usize,
         renderer: &mut crate::renderer::RendererState,
     ) {
-        let mut y = self.variable_registers[third_nibble] % 32;
+        let mut y = self.registers[third_nibble] % 32;
 
-        self.variable_registers[15] = 0;
+        self.registers[15] = 0;
 
         'outer: for i in 0..fourth_nibble {
             let ith_byte = self.memory[self.index_register + i];
-            let mut x = self.variable_registers[second_nibble] % 64;
+            let mut x = self.registers[second_nibble] % 64;
             'inner: for bit_value in 0..8 {
                 // we subtract bit_value from 8 because bit_range_to_num works from right to left, so we need to flip it
                 let sprite_bit = crate::bit_utils::bit_range_to_num(
@@ -378,7 +378,7 @@ impl Emulator {
                             z: 0.0,
                             w: 0.0,
                         };
-                        self.variable_registers[15] = 1;
+                        self.registers[15] = 1;
                     } else {
                         pixel.color = cgmath::Vector4 {
                             x: 1.0,
@@ -402,11 +402,11 @@ impl Emulator {
     }
 
     fn set_register(&mut self, register: usize, value: u8) {
-        self.variable_registers[register] = value;
+        self.registers[register] = value;
     }
 
     fn add_to_register(&mut self, register: usize, addend: u8) {
-        let register_to_change = &mut self.variable_registers[register];
+        let register_to_change = &mut self.registers[register];
         let sum = *register_to_change + addend;
         *register_to_change = sum;
     }
@@ -437,27 +437,64 @@ impl Emulator {
     }
 
     fn skip_if_register_equals_value(&mut self, register: usize, value: u8) {
-        if self.variable_registers[register] == value {
+        if self.registers[register] == value {
             self.program_counter = self.program_counter + 2;
         }
     }
 
     fn skip_if_register_not_equal_to_value(&mut self, register: usize, value: u8) {
-        if self.variable_registers[register] != value {
+        if self.registers[register] != value {
             self.program_counter = self.program_counter + 2;
         }
     }
 
     fn skip_if_registers_equal(&mut self, register_x: usize, register_y: usize) {
-        if self.variable_registers[register_x] == self.variable_registers[register_y] {
+        if self.registers[register_x] == self.registers[register_y] {
             self.program_counter = self.program_counter + 2;
         }
     }
 
     fn skip_if_registers_not_equal(&mut self, register_x: usize, register_y: usize) {
-        if self.variable_registers[register_x] != self.variable_registers[register_y] {
+        if self.registers[register_x] != self.registers[register_y] {
             self.program_counter = self.program_counter + 2;
         }
+    }
+
+    fn set_register_to_other(&mut self, register_x: usize, register_y: usize) {
+        self.registers[register_x] = self.registers[register_y];
+    }
+
+    /// Sets register X to the bitwise/binary logical disjunction (OR) of register X and register Y.
+    fn binary_or(&mut self, register_x: usize, register_y: usize) {
+        self.registers[register_x] = self.registers[register_x] | self.registers[register_y];
+    }
+
+    /// Sets register X to the bitwise/binary logical conjunction (AND) of register X and register Y.
+    fn binary_and(&mut self, register_x: usize, register_y: usize) {
+        self.registers[register_x] = self.registers[register_x] & self.registers[register_y];
+    }
+
+    /// Sets register X to the bitwise/binary logical exclusive OR (XOR) of register X and register Y.
+    fn binary_xor(&mut self, register_x: usize, register_y: usize) {
+        self.registers[register_x] = self.registers[register_x] ^ self.registers[register_y];
+    }
+
+    /// Sets register X to the sum of register X and register Y.
+    /// Sets register F to 1 if result > 255, otherwise sets it to 0.
+    fn add_registers(&mut self, register_x: usize, register_y: usize) {
+        let temp: u16 = self.registers[register_x] as u16 + self.registers[register_y] as u16;
+        if temp > std::u8::MAX.into() {
+            self.registers[15] = 1;
+        } else {
+            self.registers[15] = 0;
+        }
+        self.registers[register_x] = (temp % (std::u8::MAX as u16 + 1)) as u8;
+    }
+
+    /// Subtracts register Y from register X. 
+    /// Sets the carry bit to 0 if register Y > register X, otherwise sets it to 1.
+    fn subtract_right_from_left(&mut self, register_x: usize, register_y: usize) {
+
     }
 }
 
@@ -483,16 +520,16 @@ async fn test_jump() {
 async fn test_set_register() {
     let mut emulator = Emulator::new(None).await;
     emulator.set_register(12, 41);
-    assert_eq!(emulator.variable_registers[12], 41);
+    assert_eq!(emulator.registers[12], 41);
 }
 
 #[tokio::test]
 async fn test_add_to_register() {
     let mut emulator = Emulator::new(None).await;
     emulator.add_to_register(11, 15);
-    assert_eq!(emulator.variable_registers[11], 15);
+    assert_eq!(emulator.registers[11], 15);
     emulator.add_to_register(11, 215);
-    assert_eq!(emulator.variable_registers[11], 230);
+    assert_eq!(emulator.registers[11], 230);
 }
 
 #[tokio::test]
@@ -525,7 +562,7 @@ async fn test_call_subroutine() {
 async fn test_skip_if_register_equals_value() {
     let mut emulator = Emulator::new(None).await;
     emulator.program_counter = 200;
-    emulator.variable_registers[0] = 1;
+    emulator.registers[0] = 1;
     emulator.skip_if_register_equals_value(0, 1);
     assert_eq!(emulator.program_counter, 202);
     emulator.skip_if_register_equals_value(0, 2);
@@ -536,7 +573,7 @@ async fn test_skip_if_register_equals_value() {
 async fn test_skip_if_register_not_equal_to_value() {
     let mut emulator = Emulator::new(None).await;
     emulator.program_counter = 200;
-    emulator.variable_registers[0] = 1;
+    emulator.registers[0] = 1;
     emulator.skip_if_register_not_equal_to_value(0, 2);
     assert_eq!(emulator.program_counter, 202);
     emulator.skip_if_register_not_equal_to_value(0, 1);
@@ -547,11 +584,11 @@ async fn test_skip_if_register_not_equal_to_value() {
 async fn test_skip_if_registers_equal() {
     let mut emulator = Emulator::new(None).await;
     emulator.program_counter = 200;
-    emulator.variable_registers[0] = 1;
-    emulator.variable_registers[1] = 1;
+    emulator.registers[0] = 1;
+    emulator.registers[1] = 1;
     emulator.skip_if_registers_equal(0, 1);
     assert_eq!(emulator.program_counter, 202);
-    emulator.variable_registers[0] = 2;
+    emulator.registers[0] = 2;
     emulator.skip_if_registers_equal(0, 1);
     assert_eq!(emulator.program_counter, 202);
 }
@@ -560,11 +597,83 @@ async fn test_skip_if_registers_equal() {
 async fn test_skip_if_registers_not_equal() {
     let mut emulator = Emulator::new(None).await;
     emulator.program_counter = 200;
-    emulator.variable_registers[0] = 1;
-    emulator.variable_registers[1] = 2;
+    emulator.registers[0] = 1;
+    emulator.registers[1] = 2;
     emulator.skip_if_registers_not_equal(0, 1);
     assert_eq!(emulator.program_counter, 202);
-    emulator.variable_registers[0] = 2;
+    emulator.registers[0] = 2;
     emulator.skip_if_registers_not_equal(0, 1);
     assert_eq!(emulator.program_counter, 202);
+}
+
+#[tokio::test]
+async fn test_set_register_to_other() {
+    let mut emulator = Emulator::new(None).await;
+    emulator.registers[0] = 1;
+    emulator.registers[1] = 15;
+    emulator.set_register_to_other(0, 1);
+    assert_eq!(emulator.registers[0], emulator.registers[1]);
+}
+
+#[tokio::test]
+async fn test_binary_or() {
+    let mut emulator = Emulator::new(None).await;
+    emulator.registers[0] = 0b1000;
+    emulator.registers[1] = 0b0111;
+    emulator.binary_or(0, 1);
+    assert_eq!(emulator.registers[0], 0b1111);
+
+    emulator.registers[2] = 0b1010;
+    emulator.registers[3] = 0b0011;
+    emulator.binary_or(2, 3);
+    assert_eq!(emulator.registers[2], 0b1011);
+}
+
+#[tokio::test]
+async fn test_binary_and() {
+    let mut emulator = Emulator::new(None).await;
+    emulator.registers[0] = 0b1000;
+    emulator.registers[1] = 0b1011;
+    emulator.binary_and(0, 1);
+    assert_eq!(emulator.registers[0], 0b1000);
+
+    emulator.registers[3] = 0b1101;
+    emulator.registers[4] = 0b1100;
+    emulator.binary_and(3, 4);
+    assert_eq!(emulator.registers[3], 0b1100);
+}
+
+#[tokio::test]
+async fn test_binary_xor() {
+    let mut emulator = Emulator::new(None).await;
+    emulator.registers[0] = 0b0110;
+    emulator.registers[1] = 0b1101;
+    emulator.binary_xor(0, 1);
+    assert_eq!(emulator.registers[0], 0b1011);
+
+    emulator.registers[4] = 0b1010;
+    emulator.registers[5] = 0b0100;
+    emulator.binary_xor(4, 5);
+    assert_eq!(emulator.registers[4], 0b1110);
+}
+
+#[tokio::test]
+async fn test_add_registers() {
+    let mut emulator = Emulator::new(None).await;
+    emulator.registers[0] = 100;
+    emulator.registers[1] = 50;
+    emulator.add_registers(0, 1);
+    assert_eq!(emulator.registers[0], 150);
+
+    emulator.registers[13] = 200;
+    emulator.registers[14] = 100;
+    emulator.add_registers(13, 14);
+    assert_eq!(emulator.registers[13], 44);
+    assert_eq!(emulator.registers[15], 1);
+
+    emulator.registers[3] = 200;
+    emulator.registers[4] = 10;
+    emulator.add_registers(3, 4);
+    assert_eq!(emulator.registers[3], 210);
+    assert_eq!(emulator.registers[15], 0);
 }
