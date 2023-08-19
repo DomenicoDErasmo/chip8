@@ -11,10 +11,11 @@ pub struct Emulator {
     program_counter: usize,
     index_register: usize,
     registers: [u8; 16],
+    has_cosmac_vip_instructions: bool,
 }
 
 impl Emulator {
-    pub async fn new(file_path: Option<&str>) -> Self {
+    pub async fn new(file_path: Option<&str>, has_cosmac_vip_instructions: bool) -> Self {
         let mut memory = match file_path {
             Some(path) => Self::load_memory_from_rom(path),
             None => [0; 4096],
@@ -47,7 +48,7 @@ impl Emulator {
             (VirtualKeyCode::V, false),
         ]);
 
-        let variable_registers = [0; 16];
+        let registers = [0; 16];
 
         Self {
             memory,
@@ -57,7 +58,8 @@ impl Emulator {
             pressed,
             program_counter,
             index_register,
-            registers: variable_registers,
+            registers,
+            has_cosmac_vip_instructions,
         }
     }
 
@@ -300,11 +302,10 @@ impl Emulator {
                 0x2 => self.binary_and(second_nibble.into(), third_nibble.into()),
                 0x3 => self.binary_xor(second_nibble.into(), third_nibble.into()),
                 0x4 => self.add_registers(second_nibble.into(), third_nibble.into()),
-                0x5 => todo!(),
-                0x6 => todo!(),
-                0x7 => todo!(),
-                0x8 => todo!(),
-                0xE => todo!(),
+                0x5 => self.subtract_registers(second_nibble.into(), third_nibble.into()),
+                0x6 => self.right_shift_on_register(second_nibble.into(), third_nibble.into()),
+                0x7 => self.subtract_registers(third_nibble.into(), second_nibble.into()),
+                0xE => self.left_shift_on_register(second_nibble.into(), third_nibble.into()),
                 _ => {}
             },
             0x9 => self.skip_if_registers_not_equal(second_nibble.into(), third_nibble.into()),
@@ -491,10 +492,39 @@ impl Emulator {
         self.registers[register_x] = (temp % (std::u8::MAX as u16 + 1)) as u8;
     }
 
-    /// Subtracts register Y from register X. 
-    /// Sets the carry bit to 0 if register Y > register X, otherwise sets it to 1.
-    fn subtract_right_from_left(&mut self, register_x: usize, register_y: usize) {
+    /// Subtracts right_register from left_register
+    /// Sets register F to 1 if the left register is bigger than the right register otherwise 0
+    fn subtract_registers(&mut self, left_register: usize, right_register: usize) {
+        let temp: i16 =
+            self.registers[left_register] as i16 - self.registers[right_register] as i16;
+        let carry: u8 = if temp < 0 { 0 } else { 1 };
+        let borrowed: i16 = if carry == 0 { 1 } else { 0 };
+        self.registers[15] = carry;
+        self.registers[left_register] = (temp + ((std::u8::MAX as i16 + 1) * borrowed)) as u8;
+    }
 
+    /// Shifts register X by 1 bit to the right and sets register F to the bit shifted out.
+    /// Sets register X to register Y first if the emulator has COSMAC VIP instructions.
+    fn right_shift_on_register(&mut self, register_x: usize, register_y: usize) {
+        self.registers[register_x] = if self.has_cosmac_vip_instructions {
+            self.registers[register_y]
+        } else {
+            self.registers[register_x]
+        };
+        self.registers[15] = self.registers[register_x] & 1;
+        self.registers[register_x] = self.registers[register_x] >> 1;
+    }
+
+    /// Shifts register X by 1 bit to the left and sets register F to the bit shifted out.
+    /// Sets register X to register Y first if the emulator has COSMAC VIP instructions.
+    fn left_shift_on_register(&mut self, register_x: usize, register_y: usize) {
+        self.registers[register_x] = if self.has_cosmac_vip_instructions {
+            self.registers[register_y]
+        } else {
+            self.registers[register_x]
+        };
+        self.registers[15] = (self.registers[register_x] & 0b10000000) >> 7;
+        self.registers[register_x] = self.registers[register_x] << 1;
     }
 }
 
@@ -511,21 +541,21 @@ fn clear_screen(renderer: &mut crate::renderer::RendererState) {
 
 #[tokio::test]
 async fn test_jump() {
-    let mut emulator = Emulator::new(None).await;
+    let mut emulator = Emulator::new(None, true).await;
     emulator.jump(0x210);
     assert_eq!(emulator.program_counter, 0x210);
 }
 
 #[tokio::test]
 async fn test_set_register() {
-    let mut emulator = Emulator::new(None).await;
+    let mut emulator = Emulator::new(None, true).await;
     emulator.set_register(12, 41);
     assert_eq!(emulator.registers[12], 41);
 }
 
 #[tokio::test]
 async fn test_add_to_register() {
-    let mut emulator = Emulator::new(None).await;
+    let mut emulator = Emulator::new(None, true).await;
     emulator.add_to_register(11, 15);
     assert_eq!(emulator.registers[11], 15);
     emulator.add_to_register(11, 215);
@@ -534,14 +564,14 @@ async fn test_add_to_register() {
 
 #[tokio::test]
 async fn test_set_index_register() {
-    let mut emulator = Emulator::new(None).await;
+    let mut emulator = Emulator::new(None, true).await;
     emulator.set_index_register(1411);
     assert_eq!(emulator.index_register, 1411);
 }
 
 #[tokio::test]
 async fn test_stack_return() {
-    let mut emulator = Emulator::new(None).await;
+    let mut emulator = Emulator::new(None, true).await;
     emulator.stack.push(100);
     emulator.stack.push(200);
     emulator.stack_return();
@@ -551,7 +581,7 @@ async fn test_stack_return() {
 
 #[tokio::test]
 async fn test_call_subroutine() {
-    let mut emulator = Emulator::new(None).await;
+    let mut emulator = Emulator::new(None, true).await;
     emulator.program_counter = 200;
     emulator.call_subroutine(400);
     assert_eq!(*emulator.stack.top().unwrap(), 200);
@@ -560,7 +590,7 @@ async fn test_call_subroutine() {
 
 #[tokio::test]
 async fn test_skip_if_register_equals_value() {
-    let mut emulator = Emulator::new(None).await;
+    let mut emulator = Emulator::new(None, true).await;
     emulator.program_counter = 200;
     emulator.registers[0] = 1;
     emulator.skip_if_register_equals_value(0, 1);
@@ -571,7 +601,7 @@ async fn test_skip_if_register_equals_value() {
 
 #[tokio::test]
 async fn test_skip_if_register_not_equal_to_value() {
-    let mut emulator = Emulator::new(None).await;
+    let mut emulator = Emulator::new(None, true).await;
     emulator.program_counter = 200;
     emulator.registers[0] = 1;
     emulator.skip_if_register_not_equal_to_value(0, 2);
@@ -582,7 +612,7 @@ async fn test_skip_if_register_not_equal_to_value() {
 
 #[tokio::test]
 async fn test_skip_if_registers_equal() {
-    let mut emulator = Emulator::new(None).await;
+    let mut emulator = Emulator::new(None, true).await;
     emulator.program_counter = 200;
     emulator.registers[0] = 1;
     emulator.registers[1] = 1;
@@ -595,7 +625,7 @@ async fn test_skip_if_registers_equal() {
 
 #[tokio::test]
 async fn test_skip_if_registers_not_equal() {
-    let mut emulator = Emulator::new(None).await;
+    let mut emulator = Emulator::new(None, true).await;
     emulator.program_counter = 200;
     emulator.registers[0] = 1;
     emulator.registers[1] = 2;
@@ -608,7 +638,7 @@ async fn test_skip_if_registers_not_equal() {
 
 #[tokio::test]
 async fn test_set_register_to_other() {
-    let mut emulator = Emulator::new(None).await;
+    let mut emulator = Emulator::new(None, true).await;
     emulator.registers[0] = 1;
     emulator.registers[1] = 15;
     emulator.set_register_to_other(0, 1);
@@ -617,7 +647,7 @@ async fn test_set_register_to_other() {
 
 #[tokio::test]
 async fn test_binary_or() {
-    let mut emulator = Emulator::new(None).await;
+    let mut emulator = Emulator::new(None, true).await;
     emulator.registers[0] = 0b1000;
     emulator.registers[1] = 0b0111;
     emulator.binary_or(0, 1);
@@ -631,7 +661,7 @@ async fn test_binary_or() {
 
 #[tokio::test]
 async fn test_binary_and() {
-    let mut emulator = Emulator::new(None).await;
+    let mut emulator = Emulator::new(None, true).await;
     emulator.registers[0] = 0b1000;
     emulator.registers[1] = 0b1011;
     emulator.binary_and(0, 1);
@@ -645,7 +675,7 @@ async fn test_binary_and() {
 
 #[tokio::test]
 async fn test_binary_xor() {
-    let mut emulator = Emulator::new(None).await;
+    let mut emulator = Emulator::new(None, true).await;
     emulator.registers[0] = 0b0110;
     emulator.registers[1] = 0b1101;
     emulator.binary_xor(0, 1);
@@ -659,7 +689,7 @@ async fn test_binary_xor() {
 
 #[tokio::test]
 async fn test_add_registers() {
-    let mut emulator = Emulator::new(None).await;
+    let mut emulator = Emulator::new(None, true).await;
     emulator.registers[0] = 100;
     emulator.registers[1] = 50;
     emulator.add_registers(0, 1);
@@ -676,4 +706,82 @@ async fn test_add_registers() {
     emulator.add_registers(3, 4);
     assert_eq!(emulator.registers[3], 210);
     assert_eq!(emulator.registers[15], 0);
+}
+
+#[tokio::test]
+async fn test_subtract_registers() {
+    let mut emulator = Emulator::new(None, true).await;
+    emulator.registers[0] = 100;
+    emulator.registers[1] = 40;
+    emulator.subtract_registers(0, 1);
+    assert_eq!(emulator.registers[0], 60);
+    assert_eq!(emulator.registers[15], 1);
+
+    emulator.registers[3] = 40;
+    emulator.registers[4] = 200;
+    emulator.subtract_registers(3, 4);
+    assert_eq!(emulator.registers[3], 96);
+    assert_eq!(emulator.registers[15], 0);
+}
+
+#[tokio::test]
+async fn test_right_shift_on_register() {
+    let mut emulator = Emulator::new(None, true).await;
+
+    emulator.registers[0] = 0b100;
+    emulator.registers[1] = 0b101;
+    emulator.right_shift_on_register(0, 1);
+    assert_eq!(emulator.registers[0], 0b10);
+    assert_eq!(emulator.registers[15], 1);
+
+    emulator.registers[0] = 0b101;
+    emulator.registers[1] = 0b1000;
+    emulator.right_shift_on_register(0, 1);
+    assert_eq!(emulator.registers[0], 0b100);
+    assert_eq!(emulator.registers[15], 0);
+
+    emulator = Emulator::new(None, false).await;
+
+    emulator.registers[0] = 0b1000;
+    emulator.registers[1] = 0b110110;
+    emulator.right_shift_on_register(0, 1);
+    assert_eq!(emulator.registers[0], 0b100);
+    assert_eq!(emulator.registers[15], 0);
+
+    emulator.registers[0] = 0b101;
+    emulator.registers[1] = 0b110110;
+    emulator.right_shift_on_register(0, 1);
+    assert_eq!(emulator.registers[0], 0b10);
+    assert_eq!(emulator.registers[15], 1);
+}
+
+#[tokio::test]
+async fn test_left_shift_on_register() {
+    let mut emulator = Emulator::new(None, true).await;
+
+    emulator.registers[0] = 0b100;
+    emulator.registers[1] = 0b101;
+    emulator.left_shift_on_register(0, 1);
+    assert_eq!(emulator.registers[0], 0b1010);
+    assert_eq!(emulator.registers[15], 0);
+
+    emulator.registers[0] = 0b101;
+    emulator.registers[1] = 0b10001101;
+    emulator.left_shift_on_register(0, 1);
+    assert_eq!(emulator.registers[0], 0b00011010);
+    assert_eq!(emulator.registers[15], 1);
+
+    emulator = Emulator::new(None, false).await;
+
+    emulator.registers[0] = 0b10001;
+    emulator.registers[1] = 0b111010;
+    emulator.left_shift_on_register(0, 1);
+    assert_eq!(emulator.registers[0], 0b100010);
+    assert_eq!(emulator.registers[15], 0);
+
+    emulator.registers[0] = 0b10001101;
+    emulator.registers[1] = 0b10;
+    emulator.left_shift_on_register(0, 1);
+    assert_eq!(emulator.registers[0], 0b00011010);
+    assert_eq!(emulator.registers[15], 1);
 }

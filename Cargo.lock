@@ -286,6 +286,7 @@ dependencies = [
  "crossterm",
  "env_logger",
  "image",
+ "num-traits",
  "pollster",
  "spin_sleep",
  "tokio",
