@@ -1,13 +1,12 @@
-use winit::event::VirtualKeyCode;
-
 const FPS: f64 = 60.0;
 
 pub struct Emulator {
     memory: [u8; 4096],
     stack: crate::stack::Stack,
-    _delay_timer: crate::timer::Timer,
-    _sound_timer: crate::timer::Timer,
-    pressed: std::collections::HashMap<VirtualKeyCode, bool>,
+    delay_timer: crate::timer::Timer,
+    sound_timer: crate::timer::Timer,
+    pressed: std::collections::HashMap<u8, bool>,
+    pressed_hex_map: std::collections::HashMap<u8, u8>,
     program_counter: usize,
     index_register: usize,
     registers: [u8; 16],
@@ -30,22 +29,63 @@ impl Emulator {
         let index_register = 0;
 
         let pressed = std::collections::HashMap::from([
-            (VirtualKeyCode::Key1, false),
-            (VirtualKeyCode::Key2, false),
-            (VirtualKeyCode::Key3, false),
-            (VirtualKeyCode::Key4, false),
-            (VirtualKeyCode::Q, false),
-            (VirtualKeyCode::W, false),
-            (VirtualKeyCode::E, false),
-            (VirtualKeyCode::R, false),
-            (VirtualKeyCode::A, false),
-            (VirtualKeyCode::S, false),
-            (VirtualKeyCode::D, false),
-            (VirtualKeyCode::F, false),
-            (VirtualKeyCode::Z, false),
-            (VirtualKeyCode::X, false),
-            (VirtualKeyCode::C, false),
-            (VirtualKeyCode::V, false),
+            // 1234
+            (2, false),
+            (3, false),
+            (4, false),
+            (5, false),
+            // QWER
+            (17, false),
+            (18, false),
+            (19, false),
+            (20, false),
+            // ASDF
+            (31, false),
+            (32, false),
+            (33, false),
+            (34, false),
+            // ZXCV
+            (46, false),
+            (47, false),
+            (48, false),
+            (49, false),
+        ]);
+
+        // COSMAC VIP Layout:
+        // 1 2 3 C
+        // 4 5 6 D
+        // 7 8 9 E
+        // A 0 B F
+        //
+        // QWERTY Keyboard Layout:
+        // 1 2 3 4
+        // Q W E R
+        // A S D F
+        // Z X C V
+        //
+        // Mapped to scancodes:
+        //
+        //  2  3  4  5
+        // 17 18 19 20
+        // 31 32 33 34
+        // 46 47 48 49
+        let pressed_hex_map = std::collections::HashMap::from([
+            (0x0, 47),
+            (0x1, 2),
+            (0x2, 3),
+            (0x3, 4),
+            (0x4, 17),
+            (0x5, 18),
+            (0x6, 19),
+            (0x7, 31),
+            (0x8, 32),
+            (0x9, 33),
+            (0xA, 46),
+            (0xB, 48),
+            (0xC, 5),
+            (0xD, 20),
+            (0xE, 34),
+            (0xF, 49),
         ]);
 
         let registers = [0; 16];
@@ -53,9 +93,10 @@ impl Emulator {
         Self {
             memory,
             stack,
-            _delay_timer: delay_timer,
-            _sound_timer: sound_timer,
+            delay_timer,
+            sound_timer,
             pressed,
+            pressed_hex_map,
             program_counter,
             index_register,
             registers,
@@ -70,20 +111,7 @@ impl Emulator {
             .build(&event_loop)
             .unwrap();
         let mut renderer = crate::renderer::RendererState::new(window).await;
-        renderer.instances[(9 * crate::screen::SCREEN_WIDTH + 12) as usize].color =
-            cgmath::Vector4 {
-                x: 0.5,
-                y: 0.5,
-                z: 0.5,
-                w: 0.0,
-            };
         let timer_length = std::time::Duration::new(0, (1_000_000_000.0 / FPS) as u32);
-
-        let mut x: i32 = 0;
-        let mut y: i32 = 0;
-
-        let mut _prev_x: i32 = 0;
-        let mut _prev_y: i32 = 0;
 
         event_loop.run(move |event, _, control_flow| match event {
             // wait a frame on init
@@ -106,7 +134,7 @@ impl Emulator {
                     input:
                         winit::event::KeyboardInput {
                             state: winit::event::ElementState::Pressed,
-                            virtual_keycode: Some(VirtualKeyCode::Escape),
+                            virtual_keycode: Some(winit::event::VirtualKeyCode::Escape),
                             ..
                         },
                     ..
@@ -121,84 +149,30 @@ impl Emulator {
                     input:
                         winit::event::KeyboardInput {
                             state: winit::event::ElementState::Pressed,
-                            virtual_keycode,
+                            scancode,
                             ..
                         },
                     ..
-                } => match virtual_keycode {
-                    Some(winit::event::VirtualKeyCode::Escape) => {
-                        *control_flow = winit::event_loop::ControlFlow::Exit
+                } => {
+                    let casted_scancode = &(*scancode as u8);
+                    if self.pressed.contains_key(casted_scancode) {
+                        *self.pressed.get_mut(casted_scancode).unwrap() = true;
                     }
-                    Some(keycode) if self.pressed.contains_key(keycode) => {
-                        println!("{:?} was pressed", keycode);
-                        *self.pressed.get_mut(keycode).unwrap() = true;
-                        // Just for testing TODO: remove
-                        match keycode {
-                            VirtualKeyCode::W
-                            | VirtualKeyCode::A
-                            | VirtualKeyCode::S
-                            | VirtualKeyCode::D => {
-                                _prev_x = x;
-                                _prev_y = y;
-                                match keycode {
-                                    VirtualKeyCode::W => {
-                                        y = y + 1 % crate::screen::SCREEN_HEIGHT as i32
-                                    }
-                                    VirtualKeyCode::A => {
-                                        x = x - 1 % crate::screen::SCREEN_WIDTH as i32
-                                    }
-                                    VirtualKeyCode::S => {
-                                        y = y - 1 % crate::screen::SCREEN_HEIGHT as i32
-                                    }
-                                    VirtualKeyCode::D => {
-                                        x = x + 1 % crate::screen::SCREEN_WIDTH as i32
-                                    }
-                                    _ => {}
-                                };
-                                renderer.instances
-                                    [(y * crate::screen::SCREEN_WIDTH as i32 + x) as usize]
-                                    .color = cgmath::Vector4 {
-                                    x: 1.0,
-                                    y: 1.0,
-                                    z: 0.0,
-                                    w: 0.0,
-                                };
-                                println!(
-                                    "prev coords: {_prev_y}, {_prev_x}, z: {}",
-                                    renderer.instances[(_prev_y
-                                        * crate::screen::SCREEN_WIDTH as i32
-                                        + _prev_x)
-                                        as usize]
-                                        .color
-                                        .z
-                                );
-                                let new_color = if renderer.instances[(_prev_y
-                                    * crate::screen::SCREEN_WIDTH as i32
-                                    + _prev_x)
-                                    as usize]
-                                    .color
-                                    .z
-                                    > 0.0
-                                {
-                                    0.0
-                                } else {
-                                    1.0
-                                };
-                                renderer.instances[(_prev_y * crate::screen::SCREEN_WIDTH as i32
-                                    + _prev_x)
-                                    as usize]
-                                    .color = cgmath::Vector4 {
-                                    x: new_color,
-                                    y: new_color,
-                                    z: new_color,
-                                    w: 0.0,
-                                }
-                            }
-                            _ => {}
-                        }
+                }
+                winit::event::WindowEvent::KeyboardInput {
+                    input:
+                        winit::event::KeyboardInput {
+                            state: winit::event::ElementState::Released,
+                            scancode,
+                            ..
+                        },
+                    ..
+                } => {
+                    let casted_scancode = &(*scancode as u8);
+                    if self.pressed.contains_key(casted_scancode) {
+                        *self.pressed.get_mut(casted_scancode).unwrap() = false;
                     }
-                    _ => {}
-                },
+                }
                 _ => {}
             },
             // explicit redraw request
@@ -227,9 +201,6 @@ impl Emulator {
 
                     // increment program counter for next instruction
                     self.program_counter = self.program_counter + 2;
-                    println!("program_counter: {:#?}", self.program_counter);
-
-                    println!("instruction_bytes: {instruction_bytes:#?}");
 
                     // decode
                     self.parse_instruction(instruction_bytes, &mut renderer);
@@ -272,14 +243,16 @@ impl Emulator {
     ) {
         let first_nibble = crate::bit_utils::bit_range_to_num(instruction[0].into(), 4, 8).unwrap();
         let second_nibble =
-            crate::bit_utils::bit_range_to_num(instruction[0].into(), 0, 4).unwrap();
-        let third_nibble = crate::bit_utils::bit_range_to_num(instruction[1].into(), 4, 8).unwrap();
+            crate::bit_utils::bit_range_to_num(instruction[0].into(), 0, 4).unwrap() as usize;
+        let third_nibble =
+            crate::bit_utils::bit_range_to_num(instruction[1].into(), 4, 8).unwrap() as usize;
         let fourth_nibble =
             crate::bit_utils::bit_range_to_num(instruction[1].into(), 0, 4).unwrap();
         let nibbles_3_to_4 =
-            crate::bit_utils::bit_range_to_num(instruction[1].into(), 0, 8).unwrap();
+            crate::bit_utils::bit_range_to_num(instruction[1].into(), 0, 8).unwrap() as u8;
         let nibbles_2_to_4 =
-            crate::bit_utils::append_number_bits(&[second_nibble as u8, nibbles_3_to_4 as u8]);
+            crate::bit_utils::append_number_bits(&[second_nibble as u8, nibbles_3_to_4 as u8])
+                as usize;
 
         match first_nibble {
             0x0 => match fourth_nibble {
@@ -287,31 +260,32 @@ impl Emulator {
                 0xE => self.stack_return(),
                 _ => {}
             },
-            0x1 => self.jump(nibbles_2_to_4.into()),
-            0x2 => self.call_subroutine(nibbles_2_to_4.into()),
-            0x3 => self.skip_if_register_equals_value(second_nibble.into(), nibbles_3_to_4 as u8),
-            0x4 => {
-                self.skip_if_register_not_equal_to_value(second_nibble.into(), nibbles_3_to_4 as u8)
-            }
-            0x5 => self.skip_if_registers_equal(second_nibble.into(), third_nibble.into()),
-            0x6 => self.set_register(second_nibble as usize, nibbles_3_to_4 as u8),
-            0x7 => self.add_to_register(second_nibble as usize, nibbles_3_to_4 as u8),
+            0x1 => self.jump(nibbles_2_to_4),
+            0x2 => self.call_subroutine(nibbles_2_to_4),
+            0x3 => self.skip_if_register_equals_value(second_nibble, nibbles_3_to_4),
+            0x4 => self.skip_if_register_not_equal_to_value(second_nibble, nibbles_3_to_4),
+            0x5 => self.skip_if_registers_equal(second_nibble, third_nibble),
+            0x6 => self.set_register(second_nibble as usize, nibbles_3_to_4),
+            0x7 => self.add_to_register(second_nibble as usize, nibbles_3_to_4),
             0x8 => match fourth_nibble {
-                0x0 => self.set_register_to_other(second_nibble.into(), third_nibble.into()),
-                0x1 => self.binary_or(second_nibble.into(), third_nibble.into()),
-                0x2 => self.binary_and(second_nibble.into(), third_nibble.into()),
-                0x3 => self.binary_xor(second_nibble.into(), third_nibble.into()),
-                0x4 => self.add_registers(second_nibble.into(), third_nibble.into()),
-                0x5 => self.subtract_registers(second_nibble.into(), third_nibble.into()),
-                0x6 => self.right_shift_on_register(second_nibble.into(), third_nibble.into()),
-                0x7 => self.subtract_registers(third_nibble.into(), second_nibble.into()),
-                0xE => self.left_shift_on_register(second_nibble.into(), third_nibble.into()),
+                0x0 => self.set_register_to_other(second_nibble, third_nibble),
+                0x1 => self.binary_or(second_nibble, third_nibble),
+                0x2 => self.binary_and(second_nibble, third_nibble),
+                0x3 => self.binary_xor(second_nibble, third_nibble),
+                0x4 => self.add_registers(second_nibble, third_nibble),
+                0x5 => self.subtract_registers(second_nibble, third_nibble),
+                0x6 => self.right_shift_on_register(second_nibble, third_nibble),
+                0x7 => self.subtract_registers(third_nibble, second_nibble),
+                0xE => self.left_shift_on_register(second_nibble, third_nibble),
                 _ => {}
             },
-            0x9 => self.skip_if_registers_not_equal(second_nibble.into(), third_nibble.into()),
-            0xA => self.set_index_register(nibbles_2_to_4.into()),
-            0xB => todo!(),
-            0xC => todo!(),
+            0x9 => self.skip_if_registers_not_equal(second_nibble, third_nibble),
+            0xA => self.set_index_register(nibbles_2_to_4),
+            0xB => match self.has_cosmac_vip_instructions {
+                true => self.jump_with_offset(None, nibbles_2_to_4),
+                false => self.jump_with_offset(Some(second_nibble), nibbles_3_to_4.into()),
+            },
+            0xC => self.random(second_nibble, nibbles_3_to_4),
             0xD => self.draw_to_screen(
                 second_nibble as usize,
                 third_nibble as usize,
@@ -319,13 +293,13 @@ impl Emulator {
                 renderer,
             ),
             0xE => match nibbles_3_to_4 {
-                0x9E => todo!(),
-                0xA1 => todo!(),
+                0x9E => self.skip_if_press_status(second_nibble, true),
+                0xA1 => self.skip_if_press_status(second_nibble, false),
                 _ => {}
             },
             0xF => match nibbles_3_to_4 {
-                0x07 => todo!(),
-                0x15 => todo!(),
+                0x07 => self.set_register_to_delay_timer(second_nibble),
+                0x15 => self.set_delay_timer_to_register(second_nibble),
                 0x18 => todo!(),
                 0x1E => todo!(),
                 0x0A => todo!(),
@@ -493,7 +467,7 @@ impl Emulator {
     }
 
     /// Subtracts right_register from left_register
-    /// Sets register F to 1 if the left register is bigger than the right register otherwise 0
+    /// Sets register F to 1 if the left register is bigger than the right register otherwise 0.
     fn subtract_registers(&mut self, left_register: usize, right_register: usize) {
         let temp: i16 =
             self.registers[left_register] as i16 - self.registers[right_register] as i16;
@@ -526,6 +500,46 @@ impl Emulator {
         self.registers[15] = (self.registers[register_x] & 0b10000000) >> 7;
         self.registers[register_x] = self.registers[register_x] << 1;
     }
+
+    /// Sets the program counter to address + the value in register X (or register 0 if a COSMAC VIP).
+    fn jump_with_offset(&mut self, register_x: Option<usize>, address: usize) {
+        let register_to_use = match register_x {
+            Some(register) => register,
+            None => 0,
+        };
+        self.program_counter = address + self.registers[register_to_use] as usize;
+    }
+
+    /// Generates a rendom number and binary ANDs it with and_value.
+    fn random(&mut self, register_x: usize, and_value: u8) {
+        self.registers[register_x] = rand::random::<u8>() & and_value;
+    }
+
+    /// Skips one instruction if the key corresponding to the value in register X is equal to press_status
+    fn skip_if_press_status(&mut self, register_x: usize, press_status: bool) {
+        if *self
+            .pressed
+            .get(
+                self.pressed_hex_map
+                    .get(&(self.registers[register_x]))
+                    .unwrap(),
+            )
+            .unwrap()
+            == press_status
+        {
+            self.program_counter = self.program_counter + 2;
+        }
+    }
+
+    /// Sets register X to the current value of the delay timer.
+    fn set_register_to_delay_timer(&mut self, register_x: usize) {
+        self.registers[register_x] = self.delay_timer.counter;
+    }
+
+    /// Sets the delay timer to the value in register X.
+    fn set_delay_timer_to_register(&mut self, register_x: usize) {
+        self.delay_timer.counter = self.registers[register_x];
+    }
 }
 
 fn clear_screen(renderer: &mut crate::renderer::RendererState) {
@@ -539,249 +553,307 @@ fn clear_screen(renderer: &mut crate::renderer::RendererState) {
     }
 }
 
-#[tokio::test]
-async fn test_jump() {
-    let mut emulator = Emulator::new(None, true).await;
-    emulator.jump(0x210);
-    assert_eq!(emulator.program_counter, 0x210);
-}
+#[cfg(test)]
+mod emulator_tests {
+    use super::Emulator;
 
-#[tokio::test]
-async fn test_set_register() {
-    let mut emulator = Emulator::new(None, true).await;
-    emulator.set_register(12, 41);
-    assert_eq!(emulator.registers[12], 41);
-}
+    #[tokio::test]
+    async fn test_jump() {
+        let mut emulator = Emulator::new(None, true).await;
+        emulator.jump(0x210);
+        assert_eq!(emulator.program_counter, 0x210);
+    }
 
-#[tokio::test]
-async fn test_add_to_register() {
-    let mut emulator = Emulator::new(None, true).await;
-    emulator.add_to_register(11, 15);
-    assert_eq!(emulator.registers[11], 15);
-    emulator.add_to_register(11, 215);
-    assert_eq!(emulator.registers[11], 230);
-}
+    #[tokio::test]
+    async fn test_set_register() {
+        let mut emulator = Emulator::new(None, true).await;
+        emulator.set_register(12, 41);
+        assert_eq!(emulator.registers[12], 41);
+    }
 
-#[tokio::test]
-async fn test_set_index_register() {
-    let mut emulator = Emulator::new(None, true).await;
-    emulator.set_index_register(1411);
-    assert_eq!(emulator.index_register, 1411);
-}
+    #[tokio::test]
+    async fn test_add_to_register() {
+        let mut emulator = Emulator::new(None, true).await;
+        emulator.add_to_register(11, 15);
+        assert_eq!(emulator.registers[11], 15);
+        emulator.add_to_register(11, 215);
+        assert_eq!(emulator.registers[11], 230);
+    }
 
-#[tokio::test]
-async fn test_stack_return() {
-    let mut emulator = Emulator::new(None, true).await;
-    emulator.stack.push(100);
-    emulator.stack.push(200);
-    emulator.stack_return();
-    assert_eq!(emulator.program_counter, 200);
-    assert_eq!(*emulator.stack.top().unwrap(), 100);
-}
+    #[tokio::test]
+    async fn test_set_index_register() {
+        let mut emulator = Emulator::new(None, true).await;
+        emulator.set_index_register(1411);
+        assert_eq!(emulator.index_register, 1411);
+    }
 
-#[tokio::test]
-async fn test_call_subroutine() {
-    let mut emulator = Emulator::new(None, true).await;
-    emulator.program_counter = 200;
-    emulator.call_subroutine(400);
-    assert_eq!(*emulator.stack.top().unwrap(), 200);
-    assert_eq!(emulator.program_counter, 400);
-}
+    #[tokio::test]
+    async fn test_stack_return() {
+        let mut emulator = Emulator::new(None, true).await;
+        emulator.stack.push(100);
+        emulator.stack.push(200);
+        emulator.stack_return();
+        assert_eq!(emulator.program_counter, 200);
+        assert_eq!(*emulator.stack.top().unwrap(), 100);
+    }
 
-#[tokio::test]
-async fn test_skip_if_register_equals_value() {
-    let mut emulator = Emulator::new(None, true).await;
-    emulator.program_counter = 200;
-    emulator.registers[0] = 1;
-    emulator.skip_if_register_equals_value(0, 1);
-    assert_eq!(emulator.program_counter, 202);
-    emulator.skip_if_register_equals_value(0, 2);
-    assert_eq!(emulator.program_counter, 202);
-}
+    #[tokio::test]
+    async fn test_call_subroutine() {
+        let mut emulator = Emulator::new(None, true).await;
+        emulator.program_counter = 200;
+        emulator.call_subroutine(400);
+        assert_eq!(*emulator.stack.top().unwrap(), 200);
+        assert_eq!(emulator.program_counter, 400);
+    }
 
-#[tokio::test]
-async fn test_skip_if_register_not_equal_to_value() {
-    let mut emulator = Emulator::new(None, true).await;
-    emulator.program_counter = 200;
-    emulator.registers[0] = 1;
-    emulator.skip_if_register_not_equal_to_value(0, 2);
-    assert_eq!(emulator.program_counter, 202);
-    emulator.skip_if_register_not_equal_to_value(0, 1);
-    assert_eq!(emulator.program_counter, 202);
-}
+    #[tokio::test]
+    async fn test_skip_if_register_equals_value() {
+        let mut emulator = Emulator::new(None, true).await;
+        emulator.program_counter = 200;
+        emulator.registers[0] = 1;
+        emulator.skip_if_register_equals_value(0, 1);
+        assert_eq!(emulator.program_counter, 202);
+        emulator.skip_if_register_equals_value(0, 2);
+        assert_eq!(emulator.program_counter, 202);
+    }
 
-#[tokio::test]
-async fn test_skip_if_registers_equal() {
-    let mut emulator = Emulator::new(None, true).await;
-    emulator.program_counter = 200;
-    emulator.registers[0] = 1;
-    emulator.registers[1] = 1;
-    emulator.skip_if_registers_equal(0, 1);
-    assert_eq!(emulator.program_counter, 202);
-    emulator.registers[0] = 2;
-    emulator.skip_if_registers_equal(0, 1);
-    assert_eq!(emulator.program_counter, 202);
-}
+    #[tokio::test]
+    async fn test_skip_if_register_not_equal_to_value() {
+        let mut emulator = Emulator::new(None, true).await;
+        emulator.program_counter = 200;
+        emulator.registers[0] = 1;
+        emulator.skip_if_register_not_equal_to_value(0, 2);
+        assert_eq!(emulator.program_counter, 202);
+        emulator.skip_if_register_not_equal_to_value(0, 1);
+        assert_eq!(emulator.program_counter, 202);
+    }
 
-#[tokio::test]
-async fn test_skip_if_registers_not_equal() {
-    let mut emulator = Emulator::new(None, true).await;
-    emulator.program_counter = 200;
-    emulator.registers[0] = 1;
-    emulator.registers[1] = 2;
-    emulator.skip_if_registers_not_equal(0, 1);
-    assert_eq!(emulator.program_counter, 202);
-    emulator.registers[0] = 2;
-    emulator.skip_if_registers_not_equal(0, 1);
-    assert_eq!(emulator.program_counter, 202);
-}
+    #[tokio::test]
+    async fn test_skip_if_registers_equal() {
+        let mut emulator = Emulator::new(None, true).await;
+        emulator.program_counter = 200;
+        emulator.registers[0] = 1;
+        emulator.registers[1] = 1;
+        emulator.skip_if_registers_equal(0, 1);
+        assert_eq!(emulator.program_counter, 202);
+        emulator.registers[0] = 2;
+        emulator.skip_if_registers_equal(0, 1);
+        assert_eq!(emulator.program_counter, 202);
+    }
 
-#[tokio::test]
-async fn test_set_register_to_other() {
-    let mut emulator = Emulator::new(None, true).await;
-    emulator.registers[0] = 1;
-    emulator.registers[1] = 15;
-    emulator.set_register_to_other(0, 1);
-    assert_eq!(emulator.registers[0], emulator.registers[1]);
-}
+    #[tokio::test]
+    async fn test_skip_if_registers_not_equal() {
+        let mut emulator = Emulator::new(None, true).await;
+        emulator.program_counter = 200;
+        emulator.registers[0] = 1;
+        emulator.registers[1] = 2;
+        emulator.skip_if_registers_not_equal(0, 1);
+        assert_eq!(emulator.program_counter, 202);
+        emulator.registers[0] = 2;
+        emulator.skip_if_registers_not_equal(0, 1);
+        assert_eq!(emulator.program_counter, 202);
+    }
 
-#[tokio::test]
-async fn test_binary_or() {
-    let mut emulator = Emulator::new(None, true).await;
-    emulator.registers[0] = 0b1000;
-    emulator.registers[1] = 0b0111;
-    emulator.binary_or(0, 1);
-    assert_eq!(emulator.registers[0], 0b1111);
+    #[tokio::test]
+    async fn test_set_register_to_other() {
+        let mut emulator = Emulator::new(None, true).await;
+        emulator.registers[0] = 1;
+        emulator.registers[1] = 15;
+        emulator.set_register_to_other(0, 1);
+        assert_eq!(emulator.registers[0], emulator.registers[1]);
+    }
 
-    emulator.registers[2] = 0b1010;
-    emulator.registers[3] = 0b0011;
-    emulator.binary_or(2, 3);
-    assert_eq!(emulator.registers[2], 0b1011);
-}
+    #[tokio::test]
+    async fn test_binary_or() {
+        let mut emulator = Emulator::new(None, true).await;
+        emulator.registers[0] = 0b1000;
+        emulator.registers[1] = 0b0111;
+        emulator.binary_or(0, 1);
+        assert_eq!(emulator.registers[0], 0b1111);
 
-#[tokio::test]
-async fn test_binary_and() {
-    let mut emulator = Emulator::new(None, true).await;
-    emulator.registers[0] = 0b1000;
-    emulator.registers[1] = 0b1011;
-    emulator.binary_and(0, 1);
-    assert_eq!(emulator.registers[0], 0b1000);
+        emulator.registers[2] = 0b1010;
+        emulator.registers[3] = 0b0011;
+        emulator.binary_or(2, 3);
+        assert_eq!(emulator.registers[2], 0b1011);
+    }
 
-    emulator.registers[3] = 0b1101;
-    emulator.registers[4] = 0b1100;
-    emulator.binary_and(3, 4);
-    assert_eq!(emulator.registers[3], 0b1100);
-}
+    #[tokio::test]
+    async fn test_binary_and() {
+        let mut emulator = Emulator::new(None, true).await;
+        emulator.registers[0] = 0b1000;
+        emulator.registers[1] = 0b1011;
+        emulator.binary_and(0, 1);
+        assert_eq!(emulator.registers[0], 0b1000);
 
-#[tokio::test]
-async fn test_binary_xor() {
-    let mut emulator = Emulator::new(None, true).await;
-    emulator.registers[0] = 0b0110;
-    emulator.registers[1] = 0b1101;
-    emulator.binary_xor(0, 1);
-    assert_eq!(emulator.registers[0], 0b1011);
+        emulator.registers[3] = 0b1101;
+        emulator.registers[4] = 0b1100;
+        emulator.binary_and(3, 4);
+        assert_eq!(emulator.registers[3], 0b1100);
+    }
 
-    emulator.registers[4] = 0b1010;
-    emulator.registers[5] = 0b0100;
-    emulator.binary_xor(4, 5);
-    assert_eq!(emulator.registers[4], 0b1110);
-}
+    #[tokio::test]
+    async fn test_binary_xor() {
+        let mut emulator = Emulator::new(None, true).await;
+        emulator.registers[0] = 0b0110;
+        emulator.registers[1] = 0b1101;
+        emulator.binary_xor(0, 1);
+        assert_eq!(emulator.registers[0], 0b1011);
 
-#[tokio::test]
-async fn test_add_registers() {
-    let mut emulator = Emulator::new(None, true).await;
-    emulator.registers[0] = 100;
-    emulator.registers[1] = 50;
-    emulator.add_registers(0, 1);
-    assert_eq!(emulator.registers[0], 150);
+        emulator.registers[4] = 0b1010;
+        emulator.registers[5] = 0b0100;
+        emulator.binary_xor(4, 5);
+        assert_eq!(emulator.registers[4], 0b1110);
+    }
 
-    emulator.registers[13] = 200;
-    emulator.registers[14] = 100;
-    emulator.add_registers(13, 14);
-    assert_eq!(emulator.registers[13], 44);
-    assert_eq!(emulator.registers[15], 1);
+    #[tokio::test]
+    async fn test_add_registers() {
+        let mut emulator = Emulator::new(None, true).await;
+        emulator.registers[0] = 100;
+        emulator.registers[1] = 50;
+        emulator.add_registers(0, 1);
+        assert_eq!(emulator.registers[0], 150);
 
-    emulator.registers[3] = 200;
-    emulator.registers[4] = 10;
-    emulator.add_registers(3, 4);
-    assert_eq!(emulator.registers[3], 210);
-    assert_eq!(emulator.registers[15], 0);
-}
+        emulator.registers[13] = 200;
+        emulator.registers[14] = 100;
+        emulator.add_registers(13, 14);
+        assert_eq!(emulator.registers[13], 44);
+        assert_eq!(emulator.registers[15], 1);
 
-#[tokio::test]
-async fn test_subtract_registers() {
-    let mut emulator = Emulator::new(None, true).await;
-    emulator.registers[0] = 100;
-    emulator.registers[1] = 40;
-    emulator.subtract_registers(0, 1);
-    assert_eq!(emulator.registers[0], 60);
-    assert_eq!(emulator.registers[15], 1);
+        emulator.registers[3] = 200;
+        emulator.registers[4] = 10;
+        emulator.add_registers(3, 4);
+        assert_eq!(emulator.registers[3], 210);
+        assert_eq!(emulator.registers[15], 0);
+    }
 
-    emulator.registers[3] = 40;
-    emulator.registers[4] = 200;
-    emulator.subtract_registers(3, 4);
-    assert_eq!(emulator.registers[3], 96);
-    assert_eq!(emulator.registers[15], 0);
-}
+    #[tokio::test]
+    async fn test_subtract_registers() {
+        let mut emulator = Emulator::new(None, true).await;
+        emulator.registers[0] = 100;
+        emulator.registers[1] = 40;
+        emulator.subtract_registers(0, 1);
+        assert_eq!(emulator.registers[0], 60);
+        assert_eq!(emulator.registers[15], 1);
 
-#[tokio::test]
-async fn test_right_shift_on_register() {
-    let mut emulator = Emulator::new(None, true).await;
+        emulator.registers[3] = 40;
+        emulator.registers[4] = 200;
+        emulator.subtract_registers(3, 4);
+        assert_eq!(emulator.registers[3], 96);
+        assert_eq!(emulator.registers[15], 0);
+    }
 
-    emulator.registers[0] = 0b100;
-    emulator.registers[1] = 0b101;
-    emulator.right_shift_on_register(0, 1);
-    assert_eq!(emulator.registers[0], 0b10);
-    assert_eq!(emulator.registers[15], 1);
+    #[tokio::test]
+    async fn test_right_shift_on_register() {
+        let mut emulator = Emulator::new(None, true).await;
 
-    emulator.registers[0] = 0b101;
-    emulator.registers[1] = 0b1000;
-    emulator.right_shift_on_register(0, 1);
-    assert_eq!(emulator.registers[0], 0b100);
-    assert_eq!(emulator.registers[15], 0);
+        emulator.registers[0] = 0b100;
+        emulator.registers[1] = 0b101;
+        emulator.right_shift_on_register(0, 1);
+        assert_eq!(emulator.registers[0], 0b10);
+        assert_eq!(emulator.registers[15], 1);
 
-    emulator = Emulator::new(None, false).await;
+        emulator.registers[0] = 0b101;
+        emulator.registers[1] = 0b1000;
+        emulator.right_shift_on_register(0, 1);
+        assert_eq!(emulator.registers[0], 0b100);
+        assert_eq!(emulator.registers[15], 0);
 
-    emulator.registers[0] = 0b1000;
-    emulator.registers[1] = 0b110110;
-    emulator.right_shift_on_register(0, 1);
-    assert_eq!(emulator.registers[0], 0b100);
-    assert_eq!(emulator.registers[15], 0);
+        emulator = Emulator::new(None, false).await;
 
-    emulator.registers[0] = 0b101;
-    emulator.registers[1] = 0b110110;
-    emulator.right_shift_on_register(0, 1);
-    assert_eq!(emulator.registers[0], 0b10);
-    assert_eq!(emulator.registers[15], 1);
-}
+        emulator.registers[0] = 0b1000;
+        emulator.registers[1] = 0b110110;
+        emulator.right_shift_on_register(0, 1);
+        assert_eq!(emulator.registers[0], 0b100);
+        assert_eq!(emulator.registers[15], 0);
 
-#[tokio::test]
-async fn test_left_shift_on_register() {
-    let mut emulator = Emulator::new(None, true).await;
+        emulator.registers[0] = 0b101;
+        emulator.registers[1] = 0b110110;
+        emulator.right_shift_on_register(0, 1);
+        assert_eq!(emulator.registers[0], 0b10);
+        assert_eq!(emulator.registers[15], 1);
+    }
 
-    emulator.registers[0] = 0b100;
-    emulator.registers[1] = 0b101;
-    emulator.left_shift_on_register(0, 1);
-    assert_eq!(emulator.registers[0], 0b1010);
-    assert_eq!(emulator.registers[15], 0);
+    #[tokio::test]
+    async fn test_left_shift_on_register() {
+        let mut emulator = Emulator::new(None, true).await;
 
-    emulator.registers[0] = 0b101;
-    emulator.registers[1] = 0b10001101;
-    emulator.left_shift_on_register(0, 1);
-    assert_eq!(emulator.registers[0], 0b00011010);
-    assert_eq!(emulator.registers[15], 1);
+        emulator.registers[0] = 0b100;
+        emulator.registers[1] = 0b101;
+        emulator.left_shift_on_register(0, 1);
+        assert_eq!(emulator.registers[0], 0b1010);
+        assert_eq!(emulator.registers[15], 0);
 
-    emulator = Emulator::new(None, false).await;
+        emulator.registers[0] = 0b101;
+        emulator.registers[1] = 0b10001101;
+        emulator.left_shift_on_register(0, 1);
+        assert_eq!(emulator.registers[0], 0b00011010);
+        assert_eq!(emulator.registers[15], 1);
 
-    emulator.registers[0] = 0b10001;
-    emulator.registers[1] = 0b111010;
-    emulator.left_shift_on_register(0, 1);
-    assert_eq!(emulator.registers[0], 0b100010);
-    assert_eq!(emulator.registers[15], 0);
+        emulator = Emulator::new(None, false).await;
 
-    emulator.registers[0] = 0b10001101;
-    emulator.registers[1] = 0b10;
-    emulator.left_shift_on_register(0, 1);
-    assert_eq!(emulator.registers[0], 0b00011010);
-    assert_eq!(emulator.registers[15], 1);
+        emulator.registers[0] = 0b10001;
+        emulator.registers[1] = 0b111010;
+        emulator.left_shift_on_register(0, 1);
+        assert_eq!(emulator.registers[0], 0b100010);
+        assert_eq!(emulator.registers[15], 0);
+
+        emulator.registers[0] = 0b10001101;
+        emulator.registers[1] = 0b10;
+        emulator.left_shift_on_register(0, 1);
+        assert_eq!(emulator.registers[0], 0b00011010);
+        assert_eq!(emulator.registers[15], 1);
+    }
+
+    #[tokio::test]
+    async fn test_jump_with_offset() {
+        let mut emulator = Emulator::new(None, true).await;
+        emulator.program_counter = 200;
+        emulator.registers[0] = 10;
+        emulator.jump_with_offset(None, 100);
+        assert_eq!(emulator.program_counter, 110);
+
+        emulator = Emulator::new(None, false).await;
+        emulator.program_counter = 200;
+        emulator.registers[4] = 10;
+        emulator.jump_with_offset(Some(4), 1000);
+        assert_eq!(emulator.program_counter, 1010);
+    }
+
+    #[tokio::test]
+    async fn test_skip_if_press_status() {
+        let mut emulator = Emulator::new(None, true).await;
+        emulator.program_counter = 200;
+        emulator.registers[0] = 0x2;
+        *emulator.pressed.get_mut(&3).unwrap() = true;
+        emulator.skip_if_press_status(0, true);
+        assert_eq!(emulator.program_counter, 202);
+
+        emulator.program_counter = 200;
+        emulator.registers[1] = 0xE;
+        *emulator.pressed.get_mut(&34).unwrap() = true;
+        emulator.skip_if_press_status(1, true);
+        assert_eq!(emulator.program_counter, 202);
+
+        emulator.program_counter = 200;
+        emulator.registers[2] = 0xF;
+        *emulator.pressed.get_mut(&49).unwrap() = false;
+        emulator.skip_if_press_status(2, false);
+        assert_eq!(emulator.program_counter, 202);
+    }
+
+    #[tokio::test]
+    async fn test_set_register_to_delay_timer() {
+        let mut emulator = Emulator::new(None, true).await;
+        emulator.delay_timer.counter = 100;
+        emulator.set_register_to_delay_timer(1);
+        assert_eq!(emulator.registers[1], 100);
+    }
+
+    #[tokio::test]
+    async fn test_set_delay_timer_to_register() {
+        let mut emulator = Emulator::new(None, true).await;
+        emulator.registers[1] = 100;
+        emulator.set_delay_timer_to_register(1);
+        assert_eq!(emulator.delay_timer.counter, 100);
+    }
 }

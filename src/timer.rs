@@ -1,5 +1,5 @@
 pub struct Timer {
-    counter: u8,
+    pub counter: u8,
 }
 
 impl Timer {
