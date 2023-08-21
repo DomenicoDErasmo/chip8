@@ -114,13 +114,14 @@ impl Emulator {
 
                     // In get_key, we loop indefinitely until a key is pressed (or released in the COSMAC VIP)
                     let parsed_instructions = crate::instruction_format::InstructionFormat::new(
-                        Self::get_instructions_from_memory(&self.memory, self.program_counter),
+                        &self.get_instructions_from_memory(),
                     );
                     let trigger_state = if self.has_cosmac_vip_instructions {
                         Released
                     } else {
                         Pressed
                     };
+                    // Check that the current instruction is get_key
                     if (*state == trigger_state)
                         & (parsed_instructions.first_nibble == 0xF)
                         & (parsed_instructions.nibbles_3_to_4 == 0x0A)
@@ -149,16 +150,13 @@ impl Emulator {
                 // 12x a frame -> 720 / instructions per second on 60 FPS
                 for _ in 0..12 {
                     // fetch
-                    let instruction_bytes: &[u8; 2] = &self.memory
-                        [self.program_counter..self.program_counter + 2]
-                        .try_into()
-                        .expect("Expected to receive 2 values from memory");
+                    let instruction_bytes: [u8; 2] = self.get_instructions_from_memory();
 
                     // increment program counter for next instruction
                     self.program_counter = self.program_counter + 2;
 
                     // decode and execute
-                    self.parse_instruction(instruction_bytes, &mut renderer);
+                    self.parse_instruction(&instruction_bytes, &mut renderer);
                 }
 
                 // render
@@ -168,12 +166,8 @@ impl Emulator {
         })
     }
 
-    // TODO: how to refactor to include fetch step?
-    fn get_instructions_from_memory(
-        memory: &[u8; MEMORY_SIZE],
-        program_counter: usize,
-    ) -> &[u8; 2] {
-        memory[program_counter..program_counter + 2]
+    fn get_instructions_from_memory(&mut self) -> [u8; 2] {
+        self.memory[self.program_counter..self.program_counter + 2]
             .try_into()
             .expect("Expected to receive 2 values from memory")
     }
