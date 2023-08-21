@@ -1,23 +1,31 @@
+use winit::event::ElementState::{Pressed, Released};
+
 const FPS: f64 = 60.0;
+const MEMORY_SIZE: usize = 4096;
 
 pub struct Emulator {
-    memory: [u8; 4096],
+    memory: [u8; MEMORY_SIZE],
     stack: crate::stack::Stack,
     delay_timer: crate::timer::Timer,
     sound_timer: crate::timer::Timer,
-    pressed: std::collections::HashMap<u8, bool>,
-    pressed_hex_map: std::collections::HashMap<u8, u8>,
+    pressed: std::collections::HashMap<u8, winit::event::ElementState>,
+    pressed_hex_map: bimap::BiHashMap<u8, u8>,
     program_counter: usize,
-    index_register: usize,
+    index_register: u16,
     registers: [u8; 16],
     has_cosmac_vip_instructions: bool,
 }
 
 impl Emulator {
+    /// Builds the emulator.
+    ///
+    /// # Arguments:
+    /// * `file_path`: An optional path to the ROM.
+    /// * `has_cosmac_vip_instructions`: Determines whether some functions behave like they would on the COSMAC VIP.
     pub async fn new(file_path: Option<&str>, has_cosmac_vip_instructions: bool) -> Self {
         let mut memory = match file_path {
             Some(path) => Self::load_memory_from_rom(path),
-            None => [0; 4096],
+            None => [0; MEMORY_SIZE],
         };
         Self::load_font(&mut memory);
 
@@ -28,65 +36,8 @@ impl Emulator {
         let program_counter = 0x200;
         let index_register = 0;
 
-        let pressed = std::collections::HashMap::from([
-            // 1234
-            (2, false),
-            (3, false),
-            (4, false),
-            (5, false),
-            // QWER
-            (17, false),
-            (18, false),
-            (19, false),
-            (20, false),
-            // ASDF
-            (31, false),
-            (32, false),
-            (33, false),
-            (34, false),
-            // ZXCV
-            (46, false),
-            (47, false),
-            (48, false),
-            (49, false),
-        ]);
-
-        // COSMAC VIP Layout:
-        // 1 2 3 C
-        // 4 5 6 D
-        // 7 8 9 E
-        // A 0 B F
-        //
-        // QWERTY Keyboard Layout:
-        // 1 2 3 4
-        // Q W E R
-        // A S D F
-        // Z X C V
-        //
-        // Mapped to scancodes:
-        //
-        //  2  3  4  5
-        // 17 18 19 20
-        // 31 32 33 34
-        // 46 47 48 49
-        let pressed_hex_map = std::collections::HashMap::from([
-            (0x0, 47),
-            (0x1, 2),
-            (0x2, 3),
-            (0x3, 4),
-            (0x4, 17),
-            (0x5, 18),
-            (0x6, 19),
-            (0x7, 31),
-            (0x8, 32),
-            (0x9, 33),
-            (0xA, 46),
-            (0xB, 48),
-            (0xC, 5),
-            (0xD, 20),
-            (0xE, 34),
-            (0xF, 49),
-        ]);
+        let pressed = Self::load_pressed();
+        let pressed_hex_map = Self::load_pressed_hex_map();
 
         let registers = [0; 16];
 
@@ -104,6 +55,7 @@ impl Emulator {
         }
     }
 
+    /// Runs the ROM and consumes it upon completion (i.e. not passing self by reference).
     pub async fn run(mut self) {
         env_logger::init();
         let event_loop = winit::event_loop::EventLoop::new();
@@ -139,38 +91,41 @@ impl Emulator {
                         },
                     ..
                 } => *control_flow = winit::event_loop::ControlFlow::Exit,
+                // Resize
                 winit::event::WindowEvent::Resized(physical_size) => {
                     renderer.resize(*physical_size);
                 }
+                // Scale factor changed
                 winit::event::WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
                     renderer.resize(**new_inner_size);
                 }
+                // Pressed or released a key
                 winit::event::WindowEvent::KeyboardInput {
                     input:
                         winit::event::KeyboardInput {
-                            state: winit::event::ElementState::Pressed,
-                            scancode,
-                            ..
+                            state, scancode, ..
                         },
                     ..
                 } => {
                     let casted_scancode = &(*scancode as u8);
                     if self.pressed.contains_key(casted_scancode) {
-                        *self.pressed.get_mut(casted_scancode).unwrap() = true;
+                        *self.pressed.get_mut(casted_scancode).unwrap() = *state;
                     }
-                }
-                winit::event::WindowEvent::KeyboardInput {
-                    input:
-                        winit::event::KeyboardInput {
-                            state: winit::event::ElementState::Released,
-                            scancode,
-                            ..
-                        },
-                    ..
-                } => {
-                    let casted_scancode = &(*scancode as u8);
-                    if self.pressed.contains_key(casted_scancode) {
-                        *self.pressed.get_mut(casted_scancode).unwrap() = false;
+
+                    // In get_key, we loop indefinitely until a key is pressed (or released in the COSMAC VIP)
+                    let parsed_instructions = crate::instruction_format::InstructionFormat::new(
+                        Self::get_instructions_from_memory(&self.memory, self.program_counter),
+                    );
+                    let trigger_state = if self.has_cosmac_vip_instructions {
+                        Released
+                    } else {
+                        Pressed
+                    };
+                    if (*state == trigger_state)
+                        & (parsed_instructions.first_nibble == 0xF)
+                        & (parsed_instructions.nibbles_3_to_4 == 0x0A)
+                    {
+                        self.get_key(parsed_instructions.second_nibble, Some(*casted_scancode));
                     }
                 }
                 _ => {}
@@ -197,14 +152,13 @@ impl Emulator {
                     let instruction_bytes: &[u8; 2] = &self.memory
                         [self.program_counter..self.program_counter + 2]
                         .try_into()
-                        .expect("Wrong length");
+                        .expect("Expected to receive 2 values from memory");
 
                     // increment program counter for next instruction
                     self.program_counter = self.program_counter + 2;
 
-                    // decode
+                    // decode and execute
                     self.parse_instruction(instruction_bytes, &mut renderer);
-                    // execute
                 }
 
                 // render
@@ -214,7 +168,18 @@ impl Emulator {
         })
     }
 
-    fn load_font(memory: &mut [u8; 4096]) {
+    // TODO: how to refactor to include fetch step?
+    fn get_instructions_from_memory(
+        memory: &[u8; MEMORY_SIZE],
+        program_counter: usize,
+    ) -> &[u8; 2] {
+        memory[program_counter..program_counter + 2]
+            .try_into()
+            .expect("Expected to receive 2 values from memory")
+    }
+
+    /// Initializes the emulator's font.
+    fn load_font(memory: &mut [u8; MEMORY_SIZE]) {
         let font = &[
             0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
             0x20, 0x60, 0x20, 0x20, 0x70, // 1
@@ -236,73 +201,132 @@ impl Emulator {
         memory[0x50..0xA0].clone_from_slice(font);
     }
 
+    /// Initializes the pressed map
+    fn load_pressed() -> std::collections::HashMap<u8, winit::event::ElementState> {
+        std::collections::HashMap::from([
+            // 1234
+            (2, Released),
+            (3, Released),
+            (4, Released),
+            (5, Released),
+            // QWER
+            (17, Released),
+            (18, Released),
+            (19, Released),
+            (20, Released),
+            // ASDF
+            (31, Released),
+            (32, Released),
+            (33, Released),
+            (34, Released),
+            // ZXCV
+            (46, Released),
+            (47, Released),
+            (48, Released),
+            (49, Released),
+        ])
+    }
+
+    /// Initializes the pressed scancode hex map
+    ///
+    /// COSMAC VIP Layout:
+    /// 1 2 3 C
+    /// 4 5 6 D
+    /// 7 8 9 E
+    /// A 0 B F
+    ///
+    /// QWERTY Keyboard Layout:
+    /// 1 2 3 4
+    /// Q W E R
+    /// A S D F
+    /// Z X C V
+    ///
+    /// Mapped to scancodes:
+    ///
+    ///  2  3  4  5
+    /// 17 18 19 20
+    /// 31 32 33 34
+    /// 46 47 48 49
+    fn load_pressed_hex_map() -> bimap::BiHashMap<u8, u8> {
+        let mut pressed_hex_map = bimap::BiHashMap::new();
+        pressed_hex_map.insert(0x0, 47);
+        pressed_hex_map.insert(0x1, 2);
+        pressed_hex_map.insert(0x2, 3);
+        pressed_hex_map.insert(0x3, 4);
+        pressed_hex_map.insert(0x4, 17);
+        pressed_hex_map.insert(0x5, 18);
+        pressed_hex_map.insert(0x6, 19);
+        pressed_hex_map.insert(0x7, 31);
+        pressed_hex_map.insert(0x8, 32);
+        pressed_hex_map.insert(0x9, 33);
+        pressed_hex_map.insert(0xA, 46);
+        pressed_hex_map.insert(0xB, 48);
+        pressed_hex_map.insert(0xC, 5);
+        pressed_hex_map.insert(0xD, 20);
+        pressed_hex_map.insert(0xE, 34);
+        pressed_hex_map.insert(0xF, 49);
+        pressed_hex_map
+    }
+
+    /// Executes an action based on the two provided actions.
     fn parse_instruction(
         &mut self,
         instruction: &[u8; 2],
         renderer: &mut crate::renderer::RendererState,
     ) {
-        let first_nibble = crate::bit_utils::bit_range_to_num(instruction[0].into(), 4, 8).unwrap();
-        let second_nibble =
-            crate::bit_utils::bit_range_to_num(instruction[0].into(), 0, 4).unwrap() as usize;
-        let third_nibble =
-            crate::bit_utils::bit_range_to_num(instruction[1].into(), 4, 8).unwrap() as usize;
-        let fourth_nibble =
-            crate::bit_utils::bit_range_to_num(instruction[1].into(), 0, 4).unwrap();
-        let nibbles_3_to_4 =
-            crate::bit_utils::bit_range_to_num(instruction[1].into(), 0, 8).unwrap() as u8;
-        let nibbles_2_to_4 =
-            crate::bit_utils::append_number_bits(&[second_nibble as u8, nibbles_3_to_4 as u8])
-                as usize;
+        // Parse instructions
+        let p = crate::instruction_format::InstructionFormat::new(instruction);
 
-        match first_nibble {
-            0x0 => match fourth_nibble {
+        // Choose an instruction to execute
+        match p.first_nibble {
+            0x0 => match p.fourth_nibble {
                 0x0 => clear_screen(renderer),
                 0xE => self.stack_return(),
                 _ => {}
             },
-            0x1 => self.jump(nibbles_2_to_4),
-            0x2 => self.call_subroutine(nibbles_2_to_4),
-            0x3 => self.skip_if_register_equals_value(second_nibble, nibbles_3_to_4),
-            0x4 => self.skip_if_register_not_equal_to_value(second_nibble, nibbles_3_to_4),
-            0x5 => self.skip_if_registers_equal(second_nibble, third_nibble),
-            0x6 => self.set_register(second_nibble as usize, nibbles_3_to_4),
-            0x7 => self.add_to_register(second_nibble as usize, nibbles_3_to_4),
-            0x8 => match fourth_nibble {
-                0x0 => self.set_register_to_other(second_nibble, third_nibble),
-                0x1 => self.binary_or(second_nibble, third_nibble),
-                0x2 => self.binary_and(second_nibble, third_nibble),
-                0x3 => self.binary_xor(second_nibble, third_nibble),
-                0x4 => self.add_registers(second_nibble, third_nibble),
-                0x5 => self.subtract_registers(second_nibble, third_nibble),
-                0x6 => self.right_shift_on_register(second_nibble, third_nibble),
-                0x7 => self.subtract_registers(third_nibble, second_nibble),
-                0xE => self.left_shift_on_register(second_nibble, third_nibble),
+            0x1 => self.jump(p.nibbles_2_to_4),
+            0x2 => self.call_subroutine(p.nibbles_2_to_4),
+            0x3 => self.skip_if_register_equals_value(p.second_nibble, p.nibbles_3_to_4),
+            0x4 => self.skip_if_register_not_equal_to_value(p.second_nibble, p.nibbles_3_to_4),
+            0x5 => self.skip_if_registers_equal(p.second_nibble, p.third_nibble),
+            0x6 => self.set_register(p.second_nibble as usize, p.nibbles_3_to_4),
+            0x7 => self.add_to_register(p.second_nibble as usize, p.nibbles_3_to_4),
+            0x8 => match p.fourth_nibble {
+                0x0 => self.set_register_to_other(p.second_nibble, p.third_nibble),
+                0x1 => self.binary_or(p.second_nibble, p.third_nibble),
+                0x2 => self.binary_and(p.second_nibble, p.third_nibble),
+                0x3 => self.binary_xor(p.second_nibble, p.third_nibble),
+                0x4 => self.add_registers(p.second_nibble, p.third_nibble),
+                0x5 => self.subtract_registers(p.second_nibble, p.third_nibble),
+                0x6 => self.right_shift_on_register(p.second_nibble, p.third_nibble),
+                0x7 => self.subtract_registers(p.third_nibble, p.second_nibble),
+                0xE => self.left_shift_on_register(p.second_nibble, p.third_nibble),
                 _ => {}
             },
-            0x9 => self.skip_if_registers_not_equal(second_nibble, third_nibble),
-            0xA => self.set_index_register(nibbles_2_to_4),
+            0x9 => self.skip_if_registers_not_equal(p.second_nibble, p.third_nibble),
+            0xA => self.set_index_register(p.nibbles_2_to_4),
             0xB => match self.has_cosmac_vip_instructions {
-                true => self.jump_with_offset(None, nibbles_2_to_4),
-                false => self.jump_with_offset(Some(second_nibble), nibbles_3_to_4.into()),
+                true => self.jump_with_offset(None, p.nibbles_2_to_4),
+                false => self.jump_with_offset(Some(p.second_nibble), p.nibbles_3_to_4.into()),
             },
-            0xC => self.random(second_nibble, nibbles_3_to_4),
+            0xC => self.random(p.second_nibble, p.nibbles_3_to_4),
             0xD => self.draw_to_screen(
-                second_nibble as usize,
-                third_nibble as usize,
-                fourth_nibble as usize,
+                p.second_nibble as usize,
+                p.third_nibble as usize,
+                p.fourth_nibble as usize,
                 renderer,
             ),
-            0xE => match nibbles_3_to_4 {
-                0x9E => self.skip_if_press_status(second_nibble, true),
-                0xA1 => self.skip_if_press_status(second_nibble, false),
+            0xE => match p.nibbles_3_to_4 {
+                0x9E => self.skip_if_press_status(p.second_nibble, Pressed),
+                0xA1 => self.skip_if_press_status(p.second_nibble, Released),
                 _ => {}
             },
-            0xF => match nibbles_3_to_4 {
-                0x07 => self.set_register_to_delay_timer(second_nibble),
-                0x15 => self.set_delay_timer_to_register(second_nibble),
-                0x18 => todo!(),
-                0x1E => todo!(),
-                0x0A => todo!(),
+            0xF => match p.nibbles_3_to_4 {
+                0x07 => self.set_register_to_delay_timer(p.second_nibble),
+                0x15 => self.set_delay_timer_to_register(p.second_nibble),
+                0x18 => self.set_sound_timer_to_register(p.second_nibble),
+                0x1E => self.add_to_index(p.second_nibble),
+                0x0A => self.get_key(p.second_nibble, None),
                 0x29 => todo!(),
                 0x33 => todo!(),
                 0x55 => todo!(),
@@ -313,24 +337,26 @@ impl Emulator {
         }
     }
 
-    fn jump(&mut self, location: usize) {
-        self.program_counter = location;
+    /// Sets the program counter to the provided address.
+    fn jump(&mut self, address: usize) {
+        self.program_counter = address;
     }
 
+    /// Draws "rows" number of rows of 8 pixels starting from the X and Y coordinates found in register X and register Y, respectively.
     fn draw_to_screen(
         &mut self,
-        second_nibble: usize,
-        third_nibble: usize,
-        fourth_nibble: usize,
+        register_x: usize,
+        register_y: usize,
+        rows: usize,
         renderer: &mut crate::renderer::RendererState,
     ) {
-        let mut y = self.registers[third_nibble] % 32;
+        let mut y = self.registers[register_y] % 32;
 
         self.registers[15] = 0;
 
-        'outer: for i in 0..fourth_nibble {
-            let ith_byte = self.memory[self.index_register + i];
-            let mut x = self.registers[second_nibble] % 64;
+        'outer: for i in 0..rows {
+            let ith_byte = self.memory[self.index_register as usize + i];
+            let mut x = self.registers[register_x] % 64;
             'inner: for bit_value in 0..8 {
                 // we subtract bit_value from 8 because bit_range_to_num works from right to left, so we need to flip it
                 let sprite_bit = crate::bit_utils::bit_range_to_num(
@@ -353,7 +379,7 @@ impl Emulator {
                             z: 0.0,
                             w: 0.0,
                         };
-                        self.registers[15] = 1;
+                        self.registers[0xF] = 1;
                     } else {
                         pixel.color = cgmath::Vector4 {
                             x: 1.0,
@@ -376,22 +402,26 @@ impl Emulator {
         }
     }
 
-    fn set_register(&mut self, register: usize, value: u8) {
-        self.registers[register] = value;
+    /// Sets register X to the provided value.
+    fn set_register(&mut self, register_x: usize, value: u8) {
+        self.registers[register_x] = value;
     }
 
-    fn add_to_register(&mut self, register: usize, addend: u8) {
-        let register_to_change = &mut self.registers[register];
+    /// Adds the provided addend to register X.
+    fn add_to_register(&mut self, register_x: usize, addend: u8) {
+        let register_to_change = &mut self.registers[register_x];
         let sum = *register_to_change + addend;
         *register_to_change = sum;
     }
 
+    /// Sets the index register to the provided address.
     fn set_index_register(&mut self, address: usize) {
-        self.index_register = address;
+        self.index_register = address as u16;
     }
 
-    fn load_memory_from_rom(file_path: &str) -> [u8; 4096] {
-        let mut memory = [0; 4096];
+    /// Loads memory from the provided ROM.
+    fn load_memory_from_rom(file_path: &str) -> [u8; MEMORY_SIZE] {
+        let mut memory = [0; MEMORY_SIZE];
 
         let rom_contents = std::fs::read(file_path).unwrap();
         for (i, instruction) in rom_contents.iter().enumerate() {
@@ -401,40 +431,47 @@ impl Emulator {
         memory
     }
 
+    /// Sets the program coutner to the top of the stack and pops from the stack.
     fn stack_return(&mut self) {
         self.program_counter = *self.stack.top().unwrap() as usize;
         self.stack.pop();
     }
 
+    /// Pushes the current program counter to the stack and sets the program counter to address.
     fn call_subroutine(&mut self, address: usize) {
         self.stack.push(self.program_counter);
         self.program_counter = address;
     }
 
-    fn skip_if_register_equals_value(&mut self, register: usize, value: u8) {
-        if self.registers[register] == value {
+    /// Skips the next instruction if register X equals the provided value.
+    fn skip_if_register_equals_value(&mut self, register_x: usize, value: u8) {
+        if self.registers[register_x] == value {
             self.program_counter = self.program_counter + 2;
         }
     }
 
-    fn skip_if_register_not_equal_to_value(&mut self, register: usize, value: u8) {
-        if self.registers[register] != value {
+    /// Skips the next instruction if register X does not equal the provided value.
+    fn skip_if_register_not_equal_to_value(&mut self, register_x: usize, value: u8) {
+        if self.registers[register_x] != value {
             self.program_counter = self.program_counter + 2;
         }
     }
 
+    /// Skips the next instruction if registers X and Y are equal.
     fn skip_if_registers_equal(&mut self, register_x: usize, register_y: usize) {
         if self.registers[register_x] == self.registers[register_y] {
             self.program_counter = self.program_counter + 2;
         }
     }
 
+    /// Skips the next instruction if registers X and Y are not equal.
     fn skip_if_registers_not_equal(&mut self, register_x: usize, register_y: usize) {
         if self.registers[register_x] != self.registers[register_y] {
             self.program_counter = self.program_counter + 2;
         }
     }
 
+    /// Sets register X to register Y.
     fn set_register_to_other(&mut self, register_x: usize, register_y: usize) {
         self.registers[register_x] = self.registers[register_y];
     }
@@ -458,12 +495,13 @@ impl Emulator {
     /// Sets register F to 1 if result > 255, otherwise sets it to 0.
     fn add_registers(&mut self, register_x: usize, register_y: usize) {
         let temp: u16 = self.registers[register_x] as u16 + self.registers[register_y] as u16;
-        if temp > std::u8::MAX.into() {
-            self.registers[15] = 1;
+        let u8_max_cast = std::u8::MAX as u16;
+        if temp > u8_max_cast {
+            self.registers[0xF] = 1;
         } else {
-            self.registers[15] = 0;
+            self.registers[0xF] = 0;
         }
-        self.registers[register_x] = (temp % (std::u8::MAX as u16 + 1)) as u8;
+        self.registers[register_x] = (temp % (u8_max_cast + 1)) as u8;
     }
 
     /// Subtracts right_register from left_register
@@ -473,7 +511,7 @@ impl Emulator {
             self.registers[left_register] as i16 - self.registers[right_register] as i16;
         let carry: u8 = if temp < 0 { 0 } else { 1 };
         let borrowed: i16 = if carry == 0 { 1 } else { 0 };
-        self.registers[15] = carry;
+        self.registers[0xF] = carry;
         self.registers[left_register] = (temp + ((std::u8::MAX as i16 + 1) * borrowed)) as u8;
     }
 
@@ -485,7 +523,7 @@ impl Emulator {
         } else {
             self.registers[register_x]
         };
-        self.registers[15] = self.registers[register_x] & 1;
+        self.registers[0xF] = self.registers[register_x] & 1;
         self.registers[register_x] = self.registers[register_x] >> 1;
     }
 
@@ -497,7 +535,7 @@ impl Emulator {
         } else {
             self.registers[register_x]
         };
-        self.registers[15] = (self.registers[register_x] & 0b10000000) >> 7;
+        self.registers[0xF] = (self.registers[register_x] & 0b10000000) >> 7;
         self.registers[register_x] = self.registers[register_x] << 1;
     }
 
@@ -516,12 +554,16 @@ impl Emulator {
     }
 
     /// Skips one instruction if the key corresponding to the value in register X is equal to press_status
-    fn skip_if_press_status(&mut self, register_x: usize, press_status: bool) {
+    fn skip_if_press_status(
+        &mut self,
+        register_x: usize,
+        press_status: winit::event::ElementState,
+    ) {
         if *self
             .pressed
             .get(
                 self.pressed_hex_map
-                    .get(&(self.registers[register_x]))
+                    .get_by_left(&(self.registers[register_x]))
                     .unwrap(),
             )
             .unwrap()
@@ -540,6 +582,36 @@ impl Emulator {
     fn set_delay_timer_to_register(&mut self, register_x: usize) {
         self.delay_timer.counter = self.registers[register_x];
     }
+
+    /// Sets the sound timer to the value in register X.
+    fn set_sound_timer_to_register(&mut self, register_x: usize) {
+        self.sound_timer.counter = self.registers[register_x];
+    }
+
+    /// Adds register X to the index register. Will set register F to 1 if the index register overflows.
+    /// While this behavior is inconsistent between emulators, it appears that at least one game relies on
+    /// setting register F to 1, whereas no games don't rely on it, so we opt for this standardized approach.
+    fn add_to_index(&mut self, register_x: usize) {
+        let temp: u32 = self.index_register as u32 + self.registers[register_x] as u32;
+        let u16_max_cast = std::u16::MAX as u32;
+        if temp > u16_max_cast {
+            self.registers[0xF] = 1;
+        }
+        self.index_register = (temp % (u16_max_cast + 1)) as u16;
+    }
+
+    /// Blocks execution and waits for key input, but the timers should still be decreased while waiting.
+    /// If a key is pressed while this instruction waits for input, the hex value will be put in VX and execution continues.
+    /// If we reach this via the regular loop, then pass None. We also check the current program counter when we detect a new input.
+    /// If the program counter would yield this function, pass in the scancode pressed.
+    fn get_key(&mut self, register_x: usize, new_key_pressed: Option<u8>) {
+        match new_key_pressed {
+            Some(scancode) => {
+                self.registers[register_x] = *self.pressed_hex_map.get_by_right(&scancode).unwrap();
+            }
+            None => self.program_counter = self.program_counter - 2,
+        }
+    }
 }
 
 fn clear_screen(renderer: &mut crate::renderer::RendererState) {
@@ -556,6 +628,7 @@ fn clear_screen(renderer: &mut crate::renderer::RendererState) {
 #[cfg(test)]
 mod emulator_tests {
     use super::Emulator;
+    use winit::event::ElementState::{Pressed, Released};
 
     #[tokio::test]
     async fn test_jump() {
@@ -824,20 +897,20 @@ mod emulator_tests {
         let mut emulator = Emulator::new(None, true).await;
         emulator.program_counter = 200;
         emulator.registers[0] = 0x2;
-        *emulator.pressed.get_mut(&3).unwrap() = true;
-        emulator.skip_if_press_status(0, true);
+        *emulator.pressed.get_mut(&3).unwrap() = Pressed;
+        emulator.skip_if_press_status(0, Pressed);
         assert_eq!(emulator.program_counter, 202);
 
         emulator.program_counter = 200;
         emulator.registers[1] = 0xE;
-        *emulator.pressed.get_mut(&34).unwrap() = true;
-        emulator.skip_if_press_status(1, true);
+        *emulator.pressed.get_mut(&34).unwrap() = Pressed;
+        emulator.skip_if_press_status(1, Pressed);
         assert_eq!(emulator.program_counter, 202);
 
         emulator.program_counter = 200;
         emulator.registers[2] = 0xF;
-        *emulator.pressed.get_mut(&49).unwrap() = false;
-        emulator.skip_if_press_status(2, false);
+        *emulator.pressed.get_mut(&49).unwrap() = Released;
+        emulator.skip_if_press_status(2, Released);
         assert_eq!(emulator.program_counter, 202);
     }
 
@@ -855,5 +928,44 @@ mod emulator_tests {
         emulator.registers[1] = 100;
         emulator.set_delay_timer_to_register(1);
         assert_eq!(emulator.delay_timer.counter, 100);
+    }
+
+    #[tokio::test]
+    async fn test_set_sound_timer_to_register() {
+        let mut emulator = Emulator::new(None, true).await;
+        emulator.registers[1] = 100;
+        emulator.set_sound_timer_to_register(1);
+        assert_eq!(emulator.sound_timer.counter, 100);
+    }
+
+    #[tokio::test]
+    async fn test_add_to_index() {
+        let mut emulator = Emulator::new(None, true).await;
+        emulator.index_register = 100;
+        emulator.registers[1] = 21;
+        emulator.add_to_index(1);
+        assert_eq!(emulator.registers[0xF], 0);
+        assert_eq!(emulator.index_register, 121);
+
+        emulator.index_register = std::u16::MAX;
+        emulator.registers[1] = 11;
+        emulator.add_to_index(1);
+        assert_eq!(emulator.registers[0xF], 1);
+        assert_eq!(emulator.index_register, 10);
+    }
+
+    #[tokio::test]
+    async fn test_get_key() {
+        let mut emulator = Emulator::new(None, true).await;
+        emulator.program_counter = 102;
+        emulator.get_key(1, None);
+        assert_eq!(emulator.program_counter, 100);
+
+        emulator.program_counter = 100;
+        emulator.get_key(1, Some(3));
+        assert_eq!(
+            emulator.registers[1],
+            *emulator.pressed_hex_map.get_by_right(&3).unwrap()
+        );
     }
 }

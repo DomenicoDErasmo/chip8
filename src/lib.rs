@@ -1,6 +1,7 @@
 pub mod bit_utils;
 pub mod emulator;
 pub mod instance;
+pub mod instruction_format;
 pub mod renderer;
 pub mod screen;
 pub mod stack;
