@@ -148,6 +148,10 @@ impl Emulator {
             }
             // everything else - no input or waiting
             winit::event::Event::MainEventsCleared => {
+                // decrement timers
+                self.delay_timer.decrement();
+                self.sound_timer.decrement();
+
                 // 12x a frame -> 720 / instructions per second on 60 FPS
                 for _ in 0..12 {
                     // fetch
@@ -324,8 +328,8 @@ impl Emulator {
                 0x0A => self.get_key(p.second_nibble, None),
                 0x29 => self.set_index_register_to_font_character(p.second_nibble),
                 0x33 => self.binary_coded_decimal_conversion(p.second_nibble),
-                0x55 => todo!(),
-                0x65 => todo!(),
+                0x55 => self.store_registers_to_memory(p.second_nibble),
+                0x65 => self.store_memory_to_registers(p.second_nibble),
                 _ => {}
             },
             _ => {}
@@ -628,6 +632,28 @@ impl Emulator {
         self.memory[casted_index_register] = hundreds_place;
         self.memory[casted_index_register + 1] = tens_place;
         self.memory[casted_index_register + 2] = ones_place;
+    }
+
+    /// Stores all register values from 0 to X to the memory starting at the index register.
+    /// The COSMAC VIP incremented the index register while this function ran.
+    fn store_registers_to_memory(&mut self, register_x: usize) {
+        for register in 0..register_x + 1 {
+            self.memory[self.index_register as usize + register] = self.registers[register];
+        }
+        if self.has_cosmac_vip_instructions {
+            self.index_register = self.index_register + register_x as u16 + 1;
+        }
+    }
+
+    /// Takes sequential values from memory starting at the index register and loads them to registers 0 to X.
+    /// The COSCMAC VIP incremented the index register while this function ran.
+    fn store_memory_to_registers(&mut self, register_x: usize) {
+        for register in 0..register_x + 1 {
+            self.registers[register] = self.memory[self.index_register as usize + register];
+        }
+        if self.has_cosmac_vip_instructions {
+            self.index_register = self.index_register + register_x as u16 + 1;
+        }
     }
 }
 
@@ -1021,5 +1047,47 @@ mod emulator_tests {
             &emulator.memory[casted_index_register..casted_index_register + 3],
             &[1, 5, 6]
         );
+    }
+
+    #[tokio::test]
+    async fn test_store_registers_to_memory() {
+        let mut emulator = Emulator::new(None, true).await;
+        emulator.registers[0] = 4;
+        emulator.registers[1] = 2;
+        emulator.index_register = 0x200;
+        emulator.store_registers_to_memory(1);
+        assert_eq!(emulator.memory[0x200], 4);
+        assert_eq!(emulator.memory[0x201], 2);
+        assert_eq!(emulator.index_register, 0x202);
+
+        emulator = Emulator::new(None, false).await;
+        emulator.registers[0] = 4;
+        emulator.registers[1] = 2;
+        emulator.index_register = 0x200;
+        emulator.store_registers_to_memory(1);
+        assert_eq!(emulator.memory[0x200], 4);
+        assert_eq!(emulator.memory[0x201], 2);
+        assert_eq!(emulator.index_register, 0x200);
+    }
+
+    #[tokio::test]
+    async fn test_store_memory_to_registers() {
+        let mut emulator = Emulator::new(None, true).await;
+        emulator.memory[0x200] = 4;
+        emulator.memory[0x201] = 2;
+        emulator.index_register = 0x200;
+        emulator.store_memory_to_registers(1);
+        assert_eq!(emulator.registers[0], 4);
+        assert_eq!(emulator.registers[1], 2);
+        assert_eq!(emulator.index_register, 0x202);
+
+        emulator = Emulator::new(None, false).await;
+        emulator.memory[0x200] = 4;
+        emulator.memory[0x201] = 2;
+        emulator.index_register = 0x200;
+        emulator.store_memory_to_registers(1);
+        assert_eq!(emulator.registers[0], 4);
+        assert_eq!(emulator.registers[1], 2);
+        assert_eq!(emulator.index_register, 0x200);
     }
 }
