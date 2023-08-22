@@ -2,6 +2,7 @@ use winit::event::ElementState::{Pressed, Released};
 
 const FPS: f64 = 60.0;
 const MEMORY_SIZE: usize = 4096;
+const FONT_MEMORY_START: usize = 0x50;
 
 pub struct Emulator {
     memory: [u8; MEMORY_SIZE],
@@ -192,7 +193,7 @@ impl Emulator {
             0xF0, 0x80, 0xF0, 0x80, 0xF0, // E
             0xF0, 0x80, 0xF0, 0x80, 0x80, // F
         ];
-        memory[0x50..0xA0].clone_from_slice(font);
+        memory[FONT_MEMORY_START..FONT_MEMORY_START + font.len()].clone_from_slice(font);
     }
 
     /// Initializes the pressed map
@@ -605,6 +606,14 @@ impl Emulator {
             }
             None => self.program_counter = self.program_counter - 2,
         }
+    }
+
+    /// Sets the index register to the address of the hexidecimal character represented by the last nibble in register X.
+    /// TODO: Write tests
+    fn font_character(&mut self, register_x: usize) {
+        let last_nibble =
+            crate::bit_utils::bit_range_to_num(self.registers[register_x].into(), 0, 4).unwrap();
+        self.index_register = FONT_MEMORY_START as u16 + 5 * last_nibble;
     }
 }
 
