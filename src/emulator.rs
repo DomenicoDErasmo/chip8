@@ -1,3 +1,4 @@
+use rodio::Source;
 use winit::event::ElementState::{Pressed, Released};
 
 const FPS: f64 = 60.0;
@@ -60,11 +61,24 @@ impl Emulator {
     pub async fn run(mut self) {
         env_logger::init();
         let event_loop = winit::event_loop::EventLoop::new();
+        let icon = Some(Self::load_icon(std::path::Path::new(
+            "./resources/f_alear.png",
+        )));
+
         let window: winit::window::Window = winit::window::WindowBuilder::new()
+            .with_window_icon(icon)
             .build(&event_loop)
             .unwrap();
+
         let mut renderer = crate::renderer::RendererState::new(window).await;
         let timer_length = std::time::Duration::new(0, (1_000_000_000.0 / FPS) as u32);
+
+        let (_stream, handle) = rodio::OutputStream::try_default().unwrap();
+        let sink = rodio::Sink::try_new(&handle).unwrap();
+        let file = std::fs::File::open("./resources/beep.mp3").unwrap();
+        let source = rodio::Decoder::new(std::io::BufReader::new(file))
+            .unwrap()
+            .buffered();
 
         event_loop.run(move |event, _, control_flow| match event {
             // wait a frame on init
@@ -148,6 +162,11 @@ impl Emulator {
             }
             // everything else - no input or waiting
             winit::event::Event::MainEventsCleared => {
+                // play sound if timer == 0
+                if self.sound_timer.counter == 0 {
+                    sink.append(source.clone());
+                }
+
                 // decrement timers
                 self.delay_timer.decrement();
                 self.sound_timer.decrement();
@@ -171,6 +190,21 @@ impl Emulator {
         })
     }
 
+    /// Loads an icon for the emulator from the specified path.
+    fn load_icon(path: &std::path::Path) -> winit::window::Icon {
+        let (icon_rgba, icon_width, icon_height) = {
+            let image = image::open(path)
+                .expect("Failed to open icon path")
+                .into_rgba8();
+            let (width, height) = image.dimensions();
+            let rgba = image.into_raw();
+            (rgba, width, height)
+        };
+        winit::window::Icon::from_rgba(icon_rgba, icon_width, icon_height)
+            .expect("Failed to open icon")
+    }
+
+    /// Loads the current instructions from memory.
     fn get_instructions_from_memory(&mut self) -> [u8; 2] {
         self.memory[self.program_counter..self.program_counter + 2]
             .try_into()
