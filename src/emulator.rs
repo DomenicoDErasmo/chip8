@@ -322,8 +322,8 @@ impl Emulator {
                 0x18 => self.set_sound_timer_to_register(p.second_nibble),
                 0x1E => self.add_to_index(p.second_nibble),
                 0x0A => self.get_key(p.second_nibble, None),
-                0x29 => todo!(),
-                0x33 => todo!(),
+                0x29 => self.set_index_register_to_font_character(p.second_nibble),
+                0x33 => self.binary_coded_decimal_conversion(p.second_nibble),
                 0x55 => todo!(),
                 0x65 => todo!(),
                 _ => {}
@@ -609,11 +609,25 @@ impl Emulator {
     }
 
     /// Sets the index register to the address of the hexidecimal character represented by the last nibble in register X.
-    /// TODO: Write tests
-    fn font_character(&mut self, register_x: usize) {
+    fn set_index_register_to_font_character(&mut self, register_x: usize) {
         let last_nibble =
             crate::bit_utils::bit_range_to_num(self.registers[register_x].into(), 0, 4).unwrap();
         self.index_register = FONT_MEMORY_START as u16 + 5 * last_nibble;
+    }
+
+    /// Takes the number in register X, converts it to three decimal digits, and stores the digits in memory at addresses starting with the index register.
+    /// For example: 254 gets stored in memory[index_register..index_register+3] as [2, 5, 4]
+    fn binary_coded_decimal_conversion(&mut self, register_x: usize) {
+        let casted_index_register = self.index_register as usize;
+        let converted_number = self.registers[register_x];
+
+        let hundreds_place = converted_number / 100;
+        let tens_place = converted_number / 10 - 10 * hundreds_place;
+        let ones_place = converted_number - 100 * hundreds_place - 10 * tens_place;
+
+        self.memory[casted_index_register] = hundreds_place;
+        self.memory[casted_index_register + 1] = tens_place;
+        self.memory[casted_index_register + 2] = ones_place;
     }
 }
 
@@ -969,6 +983,43 @@ mod emulator_tests {
         assert_eq!(
             emulator.registers[1],
             *emulator.pressed_hex_map.get_by_right(&3).unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_set_index_register_to_font_character() {
+        let mut emulator = Emulator::new(None, true).await;
+        emulator.registers[0] = 0xAB;
+        emulator.set_index_register_to_font_character(0);
+        let casted_index_register = emulator.index_register as usize;
+        assert_eq!(
+            &emulator.memory[casted_index_register..casted_index_register + 5],
+            &[0xE0, 0x90, 0xE0, 0x90, 0xE0]
+        );
+
+        emulator.registers[0] = 0xA9;
+        emulator.set_index_register_to_font_character(0);
+        assert_eq!(
+            &emulator.memory[casted_index_register..casted_index_register + 5],
+            &[0xF0, 0x90, 0xF0, 0x10, 0xF0]
+        );
+        assert_ne!(
+            &emulator.memory[casted_index_register..casted_index_register + 5],
+            &[0xF0, 0x90, 0xF0, 0x10, 0xF1]
+        );
+    }
+
+    #[tokio::test]
+    async fn test_binary_coded_decimal_conversion() {
+        let mut emulator = Emulator::new(None, true).await;
+        emulator.index_register = 0x300;
+        emulator.registers[0] = 156;
+        emulator.binary_coded_decimal_conversion(0);
+
+        let casted_index_register = emulator.index_register as usize;
+        assert_eq!(
+            &emulator.memory[casted_index_register..casted_index_register + 3],
+            &[1, 5, 6]
         );
     }
 }
