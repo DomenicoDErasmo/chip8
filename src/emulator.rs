@@ -1,9 +1,28 @@
 use rodio::Source;
 use winit::event::ElementState::{Pressed, Released};
+use winit::event::{Event, KeyboardInput, StartCause, WindowEvent};
 
 const FPS: f64 = 60.0;
 const MEMORY_SIZE: usize = 4096;
 const FONT_MEMORY_START: usize = 0x50;
+const FONT: [u8; 80] = [
+    0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
+    0x20, 0x60, 0x20, 0x20, 0x70, // 1
+    0xF0, 0x10, 0xF0, 0x80, 0xF0, // 2
+    0xF0, 0x10, 0xF0, 0x10, 0xF0, // 3
+    0x90, 0x90, 0xF0, 0x10, 0x10, // 4
+    0xF0, 0x80, 0xF0, 0x10, 0xF0, // 5
+    0xF0, 0x80, 0xF0, 0x90, 0xF0, // 6
+    0xF0, 0x10, 0x20, 0x40, 0x40, // 7
+    0xF0, 0x90, 0xF0, 0x90, 0xF0, // 8
+    0xF0, 0x90, 0xF0, 0x10, 0xF0, // 9
+    0xF0, 0x90, 0xF0, 0x90, 0x90, // A
+    0xE0, 0x90, 0xE0, 0x90, 0xE0, // B
+    0xF0, 0x80, 0x80, 0x80, 0xF0, // C
+    0xE0, 0x90, 0x90, 0x90, 0xE0, // D
+    0xF0, 0x80, 0xF0, 0x80, 0xF0, // E
+    0xF0, 0x80, 0xF0, 0x80, 0x80, // F
+];
 
 pub struct Emulator {
     memory: [u8; MEMORY_SIZE],
@@ -34,7 +53,7 @@ impl Emulator {
             Some(path) => Self::load_memory_from_rom(path),
             None => [0; MEMORY_SIZE],
         };
-        Self::load_font(&mut memory);
+        memory[FONT_MEMORY_START..FONT_MEMORY_START + FONT.len()].clone_from_slice(&FONT);
 
         let stack = crate::stack::Stack::new();
         let delay_timer = crate::timer::Timer::new();
@@ -67,95 +86,57 @@ impl Emulator {
     pub async fn run(mut self) {
         env_logger::init();
         let event_loop = winit::event_loop::EventLoop::new();
-        let icon = Some(Self::load_icon(std::path::Path::new(
-            "./resources/f_alear.png",
-        )));
 
         let window: winit::window::Window = winit::window::WindowBuilder::new()
-            .with_window_icon(icon)
             .build(&event_loop)
             .unwrap();
 
         let mut renderer = crate::renderer::RendererState::new(window).await;
         let timer_length = std::time::Duration::new(0, (1_000_000_000.0 / FPS) as u32);
 
-        let (_stream, handle) = rodio::OutputStream::try_default().unwrap();
-        let sink = rodio::Sink::try_new(&handle).unwrap();
-        let file = std::fs::File::open("./resources/beep.mp3").unwrap();
-        let source = rodio::Decoder::new(std::io::BufReader::new(file))
-            .unwrap()
-            .buffered();
+        let (sink, source) = Self::load_sound_player();
 
         event_loop.run(move |event, _, control_flow| match event {
             // wait a frame on init
-            winit::event::Event::NewEvents(winit::event::StartCause::Init) => {
-                control_flow.set_wait_until(std::time::Instant::now() + timer_length);
-            }
-            // wait a frame
-            winit::event::Event::NewEvents(winit::event::StartCause::ResumeTimeReached {
-                ..
-            }) => {
+            Event::NewEvents(StartCause::Init)
+            | Event::NewEvents(StartCause::ResumeTimeReached { .. }) => {
                 control_flow.set_wait_until(std::time::Instant::now() + timer_length);
             }
             // resizing window, closing window, user input
-            winit::event::Event::WindowEvent {
+            Event::WindowEvent {
                 window_id,
                 ref event,
             } if window_id == renderer.window().id() => match event {
-                winit::event::WindowEvent::CloseRequested
-                | winit::event::WindowEvent::KeyboardInput {
+                WindowEvent::CloseRequested
+                | WindowEvent::KeyboardInput {
                     input:
-                        winit::event::KeyboardInput {
-                            state: winit::event::ElementState::Pressed,
+                        KeyboardInput {
+                            state: Pressed,
                             virtual_keycode: Some(winit::event::VirtualKeyCode::Escape),
                             ..
                         },
                     ..
                 } => *control_flow = winit::event_loop::ControlFlow::Exit,
                 // Resize
-                winit::event::WindowEvent::Resized(physical_size) => {
+                WindowEvent::Resized(physical_size) => {
                     renderer.resize(*physical_size);
                 }
                 // Scale factor changed
-                winit::event::WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
+                WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
                     renderer.resize(**new_inner_size);
                 }
                 // Pressed or released a key
-                winit::event::WindowEvent::KeyboardInput {
+                WindowEvent::KeyboardInput {
                     input:
-                        winit::event::KeyboardInput {
+                        KeyboardInput {
                             state, scancode, ..
                         },
                     ..
-                } => {
-                    let casted_scancode = &(*scancode as u8);
-                    if self.pressed.contains_key(casted_scancode) {
-                        *self.pressed.get_mut(casted_scancode).unwrap() = *state;
-                    }
-
-                    // In get_key, we loop indefinitely until a key is pressed (or released in the COSMAC VIP)
-                    let parsed_instructions = crate::instruction_format::InstructionFormat::new(
-                        &self.get_instructions_from_memory(),
-                    );
-                    let trigger_state = if self.has_cosmac_vip_instructions {
-                        Released
-                    } else {
-                        Pressed
-                    };
-                    // Check that the current instruction is get_key
-                    if (*state == trigger_state)
-                        & (parsed_instructions.first_nibble == 0xF)
-                        & (parsed_instructions.nibbles_3_to_4 == 0x0A)
-                    {
-                        self.get_key(parsed_instructions.second_nibble, Some(*casted_scancode));
-                    }
-                }
+                } => self.handle_input(state, scancode),
                 _ => {}
             },
             // explicit redraw request
-            winit::event::Event::RedrawRequested(window_id)
-                if window_id == renderer.window().id() =>
-            {
+            Event::RedrawRequested(window_id) if window_id == renderer.window().id() => {
                 renderer.update();
                 match renderer.render() {
                     Ok(_) => {}
@@ -167,33 +148,79 @@ impl Emulator {
                 }
             }
             // everything else - no input or waiting
-            winit::event::Event::MainEventsCleared => {
-                // play sound if timer == 0
-                if (self.sound_timer.counter == 0) & self.enable_sound {
-                    sink.append(source.clone());
-                }
-
-                // decrement timers
-                self.delay_timer.decrement();
-                self.sound_timer.decrement();
-
-                // 12x a frame -> 720 / instructions per second on 60 FPS
-                for _ in 0..12 {
-                    // fetch
-                    let instruction_bytes: [u8; 2] = self.get_instructions_from_memory();
-
-                    // increment program counter for next instruction
-                    self.program_counter = self.program_counter + 2;
-
-                    // decode and execute
-                    self.parse_instruction(&instruction_bytes, &mut renderer);
-                }
-
-                // render
-                renderer.window().request_redraw();
-            }
+            Event::MainEventsCleared => self.post_input_loop(&sink, &source, &mut renderer),
             _ => {}
         })
+    }
+
+    fn post_input_loop(
+        &mut self,
+        sink: &rodio::Sink,
+        source: &rodio::source::Buffered<rodio::Decoder<std::io::BufReader<std::fs::File>>>,
+        renderer: &mut crate::renderer::RendererState,
+    ) {
+        // play sound if timer == 0
+        if (self.sound_timer.counter == 0) & self.enable_sound {
+            sink.append(source.clone());
+        }
+
+        // decrement timers
+        self.delay_timer.decrement();
+        self.sound_timer.decrement();
+
+        // 12x a frame -> 720 / instructions per second on 60 FPS
+        for _ in 0..12 {
+            // fetch
+            let instruction_bytes: [u8; 2] = self.get_instructions_from_memory();
+
+            // increment program counter for next instruction
+            self.program_counter = self.program_counter + 2;
+
+            // decode and execute
+            self.parse_instruction(&instruction_bytes, renderer);
+        }
+
+        // render
+        renderer.window().request_redraw();
+    }
+
+    /// Processes keyboard input. Ends the get_key function if the current opcode is get_key and the desired pressed status is input.
+    fn handle_input(&mut self, state: &winit::event::ElementState, scancode: &u32) {
+        let casted_scancode = &(*scancode as u8);
+        if self.pressed.contains_key(casted_scancode) {
+            *self.pressed.get_mut(casted_scancode).unwrap() = *state;
+        }
+
+        // In get_key, we loop indefinitely until a key is pressed (or released in the COSMAC VIP)
+        let parsed_instructions =
+            crate::instruction_format::InstructionFormat::new(&self.get_instructions_from_memory());
+        let trigger_state = if self.has_cosmac_vip_instructions {
+            Released
+        } else {
+            Pressed
+        };
+
+        // Check that the current instruction is get_key
+        if (*state == trigger_state)
+            & (parsed_instructions.first_nibble == 0xF)
+            & (parsed_instructions.nibbles_3_to_4 == 0x0A)
+        {
+            self.get_key(parsed_instructions.second_nibble, Some(*casted_scancode));
+        }
+    }
+
+    /// Loads sound-playing capabilities. The CHIP-8 emulator plays a beeping sound when the sound counter goes to 0.
+    fn load_sound_player() -> (
+        rodio::Sink,
+        rodio::source::Buffered<rodio::Decoder<std::io::BufReader<std::fs::File>>>,
+    ) {
+        let (_stream, handle) = rodio::OutputStream::try_default().unwrap();
+        let sink = rodio::Sink::try_new(&handle).unwrap();
+        let file = std::fs::File::open("./resources/beep.mp3").unwrap();
+        let source = rodio::Decoder::new(std::io::BufReader::new(file))
+            .unwrap()
+            .buffered();
+        (sink, source)
     }
 
     /// Loads an icon for the emulator from the specified path.
@@ -215,29 +242,6 @@ impl Emulator {
         self.memory[self.program_counter..self.program_counter + 2]
             .try_into()
             .expect("Expected to receive 2 values from memory")
-    }
-
-    /// Initializes the emulator's font.
-    fn load_font(memory: &mut [u8; MEMORY_SIZE]) {
-        let font = &[
-            0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
-            0x20, 0x60, 0x20, 0x20, 0x70, // 1
-            0xF0, 0x10, 0xF0, 0x80, 0xF0, // 2
-            0xF0, 0x10, 0xF0, 0x10, 0xF0, // 3
-            0x90, 0x90, 0xF0, 0x10, 0x10, // 4
-            0xF0, 0x80, 0xF0, 0x10, 0xF0, // 5
-            0xF0, 0x80, 0xF0, 0x90, 0xF0, // 6
-            0xF0, 0x10, 0x20, 0x40, 0x40, // 7
-            0xF0, 0x90, 0xF0, 0x90, 0xF0, // 8
-            0xF0, 0x90, 0xF0, 0x10, 0xF0, // 9
-            0xF0, 0x90, 0xF0, 0x90, 0x90, // A
-            0xE0, 0x90, 0xE0, 0x90, 0xE0, // B
-            0xF0, 0x80, 0x80, 0x80, 0xF0, // C
-            0xE0, 0x90, 0x90, 0x90, 0xE0, // D
-            0xF0, 0x80, 0xF0, 0x80, 0xF0, // E
-            0xF0, 0x80, 0xF0, 0x80, 0x80, // F
-        ];
-        memory[FONT_MEMORY_START..FONT_MEMORY_START + font.len()].clone_from_slice(font);
     }
 
     /// Initializes the pressed map
@@ -404,6 +408,7 @@ impl Emulator {
                     8 - bit_value,
                 )
                 .unwrap();
+
                 // we subtract y from SCREEN_HEIGHT because the pixels are indexed from bottom-left to top-right, so we flip vertically
                 let pixel_index = ((crate::screen::SCREEN_HEIGHT - y as u32)
                     * crate::screen::SCREEN_WIDTH
@@ -697,6 +702,7 @@ impl Emulator {
     }
 }
 
+/// Clears the screen, making all pixels black.
 fn clear_screen(renderer: &mut crate::renderer::RendererState) {
     for instance in renderer.instances.iter_mut() {
         instance.color = cgmath::Vector4 {
