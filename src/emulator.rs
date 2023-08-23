@@ -16,6 +16,7 @@ pub struct Emulator {
     index_register: u16,
     registers: [u8; 16],
     has_cosmac_vip_instructions: bool,
+    enable_sound: bool,
 }
 
 impl Emulator {
@@ -24,7 +25,11 @@ impl Emulator {
     /// # Arguments:
     /// * `file_path`: An optional path to the ROM.
     /// * `has_cosmac_vip_instructions`: Determines whether some functions behave like they would on the COSMAC VIP.
-    pub async fn new(file_path: Option<&str>, has_cosmac_vip_instructions: bool) -> Self {
+    pub async fn new(
+        file_path: Option<&str>,
+        has_cosmac_vip_instructions: bool,
+        disable_sound: bool,
+    ) -> Self {
         let mut memory = match file_path {
             Some(path) => Self::load_memory_from_rom(path),
             None => [0; MEMORY_SIZE],
@@ -54,6 +59,7 @@ impl Emulator {
             index_register,
             registers,
             has_cosmac_vip_instructions,
+            enable_sound: disable_sound,
         }
     }
 
@@ -163,7 +169,7 @@ impl Emulator {
             // everything else - no input or waiting
             winit::event::Event::MainEventsCleared => {
                 // play sound if timer == 0
-                if self.sound_timer.counter == 0 {
+                if (self.sound_timer.counter == 0) & self.enable_sound {
                     sink.append(source.clone());
                 }
 
@@ -443,8 +449,8 @@ impl Emulator {
     /// Adds the provided addend to register X.
     fn add_to_register(&mut self, register_x: usize, addend: u8) {
         let register_to_change = &mut self.registers[register_x];
-        let sum = *register_to_change + addend;
-        *register_to_change = sum;
+        let sum = (*register_to_change as u16 + addend as u16) % (std::u8::MAX as u16 + 1);
+        *register_to_change = sum as u8;
     }
 
     /// Sets the index register to the provided address.
@@ -702,6 +708,10 @@ fn clear_screen(renderer: &mut crate::renderer::RendererState) {
     }
 }
 
+/// Other integration tests:
+/// 1. Run IBM Logo.ch8 and see if the IBM logo appears and if the ROM infinitely loops afterword.
+/// 2. Run BC_test.ch8 and check if you make it to "BON By BestCoder."
+/// 3. Run test_opcode.ch8 and check if all of the opcodes have OK next to them.
 #[cfg(test)]
 mod emulator_tests {
     use super::Emulator;
@@ -709,37 +719,39 @@ mod emulator_tests {
 
     #[tokio::test]
     async fn test_jump() {
-        let mut emulator = Emulator::new(None, true).await;
+        let mut emulator = Emulator::new(None, true, false).await;
         emulator.jump(0x210);
         assert_eq!(emulator.program_counter, 0x210);
     }
 
     #[tokio::test]
     async fn test_set_register() {
-        let mut emulator = Emulator::new(None, true).await;
+        let mut emulator = Emulator::new(None, true, false).await;
         emulator.set_register(12, 41);
         assert_eq!(emulator.registers[12], 41);
     }
 
     #[tokio::test]
     async fn test_add_to_register() {
-        let mut emulator = Emulator::new(None, true).await;
+        let mut emulator = Emulator::new(None, true, false).await;
+        emulator.registers[11] = 0;
         emulator.add_to_register(11, 15);
         assert_eq!(emulator.registers[11], 15);
+        emulator.registers[11] = 55;
         emulator.add_to_register(11, 215);
-        assert_eq!(emulator.registers[11], 230);
+        assert_eq!(emulator.registers[11], 14);
     }
 
     #[tokio::test]
     async fn test_set_index_register() {
-        let mut emulator = Emulator::new(None, true).await;
+        let mut emulator = Emulator::new(None, true, false).await;
         emulator.set_index_register(1411);
         assert_eq!(emulator.index_register, 1411);
     }
 
     #[tokio::test]
     async fn test_stack_return() {
-        let mut emulator = Emulator::new(None, true).await;
+        let mut emulator = Emulator::new(None, true, false).await;
         emulator.stack.push(100);
         emulator.stack.push(200);
         emulator.stack_return();
@@ -749,7 +761,7 @@ mod emulator_tests {
 
     #[tokio::test]
     async fn test_call_subroutine() {
-        let mut emulator = Emulator::new(None, true).await;
+        let mut emulator = Emulator::new(None, true, false).await;
         emulator.program_counter = 200;
         emulator.call_subroutine(400);
         assert_eq!(*emulator.stack.top().unwrap(), 200);
@@ -758,7 +770,7 @@ mod emulator_tests {
 
     #[tokio::test]
     async fn test_skip_if_register_equals_value() {
-        let mut emulator = Emulator::new(None, true).await;
+        let mut emulator = Emulator::new(None, true, false).await;
         emulator.program_counter = 200;
         emulator.registers[0] = 1;
         emulator.skip_if_register_equals_value(0, 1);
@@ -769,7 +781,7 @@ mod emulator_tests {
 
     #[tokio::test]
     async fn test_skip_if_register_not_equal_to_value() {
-        let mut emulator = Emulator::new(None, true).await;
+        let mut emulator = Emulator::new(None, true, false).await;
         emulator.program_counter = 200;
         emulator.registers[0] = 1;
         emulator.skip_if_register_not_equal_to_value(0, 2);
@@ -780,7 +792,7 @@ mod emulator_tests {
 
     #[tokio::test]
     async fn test_skip_if_registers_equal() {
-        let mut emulator = Emulator::new(None, true).await;
+        let mut emulator = Emulator::new(None, true, false).await;
         emulator.program_counter = 200;
         emulator.registers[0] = 1;
         emulator.registers[1] = 1;
@@ -793,7 +805,7 @@ mod emulator_tests {
 
     #[tokio::test]
     async fn test_skip_if_registers_not_equal() {
-        let mut emulator = Emulator::new(None, true).await;
+        let mut emulator = Emulator::new(None, true, false).await;
         emulator.program_counter = 200;
         emulator.registers[0] = 1;
         emulator.registers[1] = 2;
@@ -806,7 +818,7 @@ mod emulator_tests {
 
     #[tokio::test]
     async fn test_set_register_to_other() {
-        let mut emulator = Emulator::new(None, true).await;
+        let mut emulator = Emulator::new(None, true, false).await;
         emulator.registers[0] = 1;
         emulator.registers[1] = 15;
         emulator.set_register_to_other(0, 1);
@@ -815,7 +827,7 @@ mod emulator_tests {
 
     #[tokio::test]
     async fn test_binary_or() {
-        let mut emulator = Emulator::new(None, true).await;
+        let mut emulator = Emulator::new(None, true, false).await;
         emulator.registers[0] = 0b1000;
         emulator.registers[1] = 0b0111;
         emulator.binary_or(0, 1);
@@ -829,7 +841,7 @@ mod emulator_tests {
 
     #[tokio::test]
     async fn test_binary_and() {
-        let mut emulator = Emulator::new(None, true).await;
+        let mut emulator = Emulator::new(None, true, false).await;
         emulator.registers[0] = 0b1000;
         emulator.registers[1] = 0b1011;
         emulator.binary_and(0, 1);
@@ -843,7 +855,7 @@ mod emulator_tests {
 
     #[tokio::test]
     async fn test_binary_xor() {
-        let mut emulator = Emulator::new(None, true).await;
+        let mut emulator = Emulator::new(None, true, false).await;
         emulator.registers[0] = 0b0110;
         emulator.registers[1] = 0b1101;
         emulator.binary_xor(0, 1);
@@ -857,7 +869,7 @@ mod emulator_tests {
 
     #[tokio::test]
     async fn test_add_registers() {
-        let mut emulator = Emulator::new(None, true).await;
+        let mut emulator = Emulator::new(None, true, false).await;
         emulator.registers[0] = 100;
         emulator.registers[1] = 50;
         emulator.add_registers(0, 1);
@@ -878,7 +890,7 @@ mod emulator_tests {
 
     #[tokio::test]
     async fn test_subtract_registers() {
-        let mut emulator = Emulator::new(None, true).await;
+        let mut emulator = Emulator::new(None, true, false).await;
         emulator.registers[0] = 100;
         emulator.registers[1] = 40;
         emulator.subtract_registers(0, 1);
@@ -894,7 +906,7 @@ mod emulator_tests {
 
     #[tokio::test]
     async fn test_right_shift_on_register() {
-        let mut emulator = Emulator::new(None, true).await;
+        let mut emulator = Emulator::new(None, true, false).await;
 
         emulator.registers[0] = 0b100;
         emulator.registers[1] = 0b101;
@@ -908,7 +920,7 @@ mod emulator_tests {
         assert_eq!(emulator.registers[0], 0b100);
         assert_eq!(emulator.registers[15], 0);
 
-        emulator = Emulator::new(None, false).await;
+        emulator = Emulator::new(None, true, false).await;
 
         emulator.registers[0] = 0b1000;
         emulator.registers[1] = 0b110110;
@@ -925,7 +937,7 @@ mod emulator_tests {
 
     #[tokio::test]
     async fn test_left_shift_on_register() {
-        let mut emulator = Emulator::new(None, true).await;
+        let mut emulator = Emulator::new(None, true, false).await;
 
         emulator.registers[0] = 0b100;
         emulator.registers[1] = 0b101;
@@ -939,7 +951,7 @@ mod emulator_tests {
         assert_eq!(emulator.registers[0], 0b00011010);
         assert_eq!(emulator.registers[15], 1);
 
-        emulator = Emulator::new(None, false).await;
+        emulator = Emulator::new(None, true, false).await;
 
         emulator.registers[0] = 0b10001;
         emulator.registers[1] = 0b111010;
@@ -956,13 +968,13 @@ mod emulator_tests {
 
     #[tokio::test]
     async fn test_jump_with_offset() {
-        let mut emulator = Emulator::new(None, true).await;
+        let mut emulator = Emulator::new(None, true, false).await;
         emulator.program_counter = 200;
         emulator.registers[0] = 10;
         emulator.jump_with_offset(None, 100);
         assert_eq!(emulator.program_counter, 110);
 
-        emulator = Emulator::new(None, false).await;
+        emulator = Emulator::new(None, true, false).await;
         emulator.program_counter = 200;
         emulator.registers[4] = 10;
         emulator.jump_with_offset(Some(4), 1000);
@@ -971,7 +983,7 @@ mod emulator_tests {
 
     #[tokio::test]
     async fn test_skip_if_press_status() {
-        let mut emulator = Emulator::new(None, true).await;
+        let mut emulator = Emulator::new(None, true, false).await;
         emulator.program_counter = 200;
         emulator.registers[0] = 0x2;
         *emulator.pressed.get_mut(&3).unwrap() = Pressed;
@@ -993,7 +1005,7 @@ mod emulator_tests {
 
     #[tokio::test]
     async fn test_set_register_to_delay_timer() {
-        let mut emulator = Emulator::new(None, true).await;
+        let mut emulator = Emulator::new(None, true, false).await;
         emulator.delay_timer.counter = 100;
         emulator.set_register_to_delay_timer(1);
         assert_eq!(emulator.registers[1], 100);
@@ -1001,7 +1013,7 @@ mod emulator_tests {
 
     #[tokio::test]
     async fn test_set_delay_timer_to_register() {
-        let mut emulator = Emulator::new(None, true).await;
+        let mut emulator = Emulator::new(None, true, false).await;
         emulator.registers[1] = 100;
         emulator.set_delay_timer_to_register(1);
         assert_eq!(emulator.delay_timer.counter, 100);
@@ -1009,7 +1021,7 @@ mod emulator_tests {
 
     #[tokio::test]
     async fn test_set_sound_timer_to_register() {
-        let mut emulator = Emulator::new(None, true).await;
+        let mut emulator = Emulator::new(None, true, false).await;
         emulator.registers[1] = 100;
         emulator.set_sound_timer_to_register(1);
         assert_eq!(emulator.sound_timer.counter, 100);
@@ -1017,7 +1029,7 @@ mod emulator_tests {
 
     #[tokio::test]
     async fn test_add_to_index() {
-        let mut emulator = Emulator::new(None, true).await;
+        let mut emulator = Emulator::new(None, true, false).await;
         emulator.index_register = 100;
         emulator.registers[1] = 21;
         emulator.add_to_index(1);
@@ -1033,7 +1045,7 @@ mod emulator_tests {
 
     #[tokio::test]
     async fn test_get_key() {
-        let mut emulator = Emulator::new(None, true).await;
+        let mut emulator = Emulator::new(None, true, false).await;
         emulator.program_counter = 102;
         emulator.get_key(1, None);
         assert_eq!(emulator.program_counter, 100);
@@ -1048,7 +1060,7 @@ mod emulator_tests {
 
     #[tokio::test]
     async fn test_set_index_register_to_font_character() {
-        let mut emulator = Emulator::new(None, true).await;
+        let mut emulator = Emulator::new(None, true, false).await;
         emulator.registers[0] = 0xAB;
         emulator.set_index_register_to_font_character(0);
         let casted_index_register = emulator.index_register as usize;
@@ -1071,7 +1083,7 @@ mod emulator_tests {
 
     #[tokio::test]
     async fn test_binary_coded_decimal_conversion() {
-        let mut emulator = Emulator::new(None, true).await;
+        let mut emulator = Emulator::new(None, true, false).await;
         emulator.index_register = 0x300;
         emulator.registers[0] = 156;
         emulator.binary_coded_decimal_conversion(0);
@@ -1085,7 +1097,7 @@ mod emulator_tests {
 
     #[tokio::test]
     async fn test_store_registers_to_memory() {
-        let mut emulator = Emulator::new(None, true).await;
+        let mut emulator = Emulator::new(None, true, false).await;
         emulator.registers[0] = 4;
         emulator.registers[1] = 2;
         emulator.index_register = 0x200;
@@ -1094,7 +1106,7 @@ mod emulator_tests {
         assert_eq!(emulator.memory[0x201], 2);
         assert_eq!(emulator.index_register, 0x202);
 
-        emulator = Emulator::new(None, false).await;
+        emulator = Emulator::new(None, true, false).await;
         emulator.registers[0] = 4;
         emulator.registers[1] = 2;
         emulator.index_register = 0x200;
@@ -1106,7 +1118,7 @@ mod emulator_tests {
 
     #[tokio::test]
     async fn test_store_memory_to_registers() {
-        let mut emulator = Emulator::new(None, true).await;
+        let mut emulator = Emulator::new(None, true, false).await;
         emulator.memory[0x200] = 4;
         emulator.memory[0x201] = 2;
         emulator.index_register = 0x200;
@@ -1115,7 +1127,7 @@ mod emulator_tests {
         assert_eq!(emulator.registers[1], 2);
         assert_eq!(emulator.index_register, 0x202);
 
-        emulator = Emulator::new(None, false).await;
+        emulator = Emulator::new(None, true, false).await;
         emulator.memory[0x200] = 4;
         emulator.memory[0x201] = 2;
         emulator.index_register = 0x200;
