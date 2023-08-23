@@ -1,0 +1,1 @@
+This is my implementation of a CHIP-8 emulator in Rust. It follows a high-level explanation of specs from this link: https://tobiasvl.github.io/blog/write-a-chip-8-emulator/.
