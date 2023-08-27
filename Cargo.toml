@@ -16,7 +16,6 @@ num-traits = "0.2"
 pollster = "0.3.0"
 rand = "0.8.5"
 rodio = "0.17.1"
-spin_sleep = "1.1.1"
 tokio = { version = "1", features = ["full"] }
 wgpu = "0.16.0"
 winit = "0.28.5"
